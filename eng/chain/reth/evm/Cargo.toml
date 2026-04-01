@@ -1,0 +1,30 @@
+[package]
+name = "nexus-evm"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+alloy-consensus = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-evm = { workspace = true }
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-rpc-types-engine = { workspace = true }
+clap = { workspace = true }
+eyre = { workspace = true }
+reth = { workspace = true }
+reth-chainspec = { workspace = true }
+reth-cli = { workspace = true }
+reth-ethereum-forks = { workspace = true }
+reth-ethereum-primitives = { workspace = true }
+reth-evm = { workspace = true }
+reth-evm-ethereum = { workspace = true }
+reth-node-ethereum = { workspace = true }
+reth-node-api = { workspace = true }
+reth-node-builder = { workspace = true }
+reth-primitives-traits = { workspace = true }
+reth-tracing = { workspace = true }
+revm = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

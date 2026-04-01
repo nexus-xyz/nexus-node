@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["evm"]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.1"
+
+[workspace.dependencies]
+alloy-primitives = "1.5.2"
+alloy-consensus = "1.5.2"
+alloy-eips = "1.5.2"
+alloy-evm = "0.26.3"
+alloy-rpc-types-engine = "1.0.41"
+clap = { version = "4", features = ["derive", "env"] }
+eyre = "0.6.12"
+reth = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-cli = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-ethereum-forks = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-evm = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-node-api = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-node-builder = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-node-ethereum = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-primitives-traits = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v1.10.2" }
+revm = "34.0.0"
+serde = "1.0.228"
+serde_yaml = "0.9.34"
+thiserror = "2.0.18"
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "sync"] }
