@@ -1,0 +1,29 @@
+syntax = "proto3";
+package nexus.evm.v1;
+
+option go_package = "nexus/x/evm/types";
+
+// Implement types defined in the EngineAPI specification.
+//
+// https://github.com/ethereum/execution-apis/blob/7907424db935b93c2fe6a3c0faab943adebe8557/src/engine/prague.md
+// - Deposit
+// - Withdrawal
+
+message WithdrawalRequest {
+  bytes source_address = 1;
+  bytes validator_pubkey = 2;
+  uint64 amount = 3;
+}
+
+message DepositRequest {
+  bytes pubkey = 1;
+  bytes withdrawal_credentials = 2;
+  uint64 amount = 3;
+  bytes signature = 4;
+  uint64 index = 5;
+}
+
+message ConsensusRequests {
+  repeated DepositRequest deposits = 1;
+  repeated WithdrawalRequest withdrawals = 2;
+}

@@ -1,0 +1,13 @@
+version: 1
+validation: sovereign
+default_denom: atnex
+accounts:
+  - name: validator
+    coins:
+      - 1000000atnex
+client:
+  openapi:
+    path: docs/static/openapi.json
+validators:
+  - name: validator
+    bonded: 1000000atnex

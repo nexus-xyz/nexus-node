@@ -1,0 +1,129 @@
+# golangci-lint configuration - Line length + essential linters
+# See https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters:
+  disable-all: true
+  enable:
+    # Line length (primary focus)
+    - lll # Line length limit
+
+    # Essential Go linters
+    - errcheck # Check for unchecked errors
+    - gosimple # Simplify code
+    - govet # Vet examines Go source code
+    - ineffassign # Detect ineffectual assignments
+    - staticcheck # Staticcheck is a go vet on steroids
+    - typecheck # Type-check Go code
+    - unused # Check for unused constants, variables, functions and types
+
+    # Code quality
+    - goimports # Check import formatting
+    - misspell # Find commonly misspelled English words
+    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go
+
+    # Security (with exclusions for common blockchain patterns)
+    - gosec # Inspect source code for security problems
+
+linters-settings:
+  # Line length limit (primary focus)
+  lll:
+    line-length: 120 # Maximum line length
+    tab-width: 4
+
+  # Error checking
+  errcheck:
+    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`;
+    check-type-assertions: true
+    # Report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
+    check-blank: false
+
+  # Revive configuration (replaces golint)
+  revive:
+    rules:
+      - name: exported
+        disabled: true # Too noisy for blockchain projects
+      - name: package-comments
+        disabled: true # Too strict for internal packages
+
+  # Security linter configuration
+  gosec:
+    excludes:
+      - G404 # Use of weak random number generator - common in tests
+      - G501 # Blocklisted import crypto/md5 - sometimes needed for compatibility
+      - G306 # File permissions - often intentional in blockchain projects
+      - G112 # HTTP server timeouts - handled at infrastructure level
+      - G115 # Integer overflow conversion - common in blockchain timestamp handling
+
+  # Import formatting
+  goimports:
+    local-prefixes: nexus
+
+  # Static analysis
+  staticcheck:
+    checks: ["all", "-SA1019"] # Exclude deprecation warnings for external dependencies
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 1000
+
+  # Maximum count of issues with the same text
+  max-same-issues: 100
+
+  # Show only new issues created after git revision
+  new: false
+
+  # Exclude specific issues
+  exclude-rules:
+    # Exclude lll issues for comments and strings
+    - linters:
+        - lll
+      source: "^\\s*(//|/\\*|\\*|`)"
+
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gosec # Security linter not needed in tests
+        - errcheck # Error checking less critical in tests
+
+    # Exclude some linters from running on fuzz tests
+    - path: _fuzz_test\.go
+      linters:
+        - gosec # Security linter not needed in fuzz tests
+        - errcheck # Error checking less critical in fuzz tests
+
+    # Exclude errcheck for defer statements (common pattern)
+    - linters:
+        - errcheck
+      text: "Error return value of.*defer"
+
+    # Exclude staticcheck deprecation warnings for simulation code (external dependency)
+    - path: app/sim.*\.go
+      linters:
+        - staticcheck
+      text: "SA1019.*deprecated"
+
+    # Exclude gosec for test and mock files
+    - path: (test|mock).*\.go
+      linters:
+        - gosec
+
+    # Exclude goimports for struct field alignment when it conflicts with line length
+    - path: app/genesis_account\.go
+      linters:
+        - goimports
+
+  # Exclude entire files from linting
+  exclude-files:
+    - ".*\\.pb\\.go$" # Generated protobuf files
+    - ".*\\.pb\\.gw\\.go$" # Generated gateway files

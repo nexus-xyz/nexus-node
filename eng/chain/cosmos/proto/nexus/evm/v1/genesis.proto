@@ -1,0 +1,23 @@
+syntax = "proto3";
+package nexus.evm.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "nexus/evm/v1/params.proto";
+
+option go_package = "nexus/x/evm/types";
+
+// GenesisState defines the evm module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+  // genesis_execution_block_hash defines the execution block hash at genesis.
+  string genesis_execution_block_hash = 2;
+  // current_block_hash defines the current block hash.
+  string current_block_hash = 3;
+  // current_block_height defines the current block height.
+  uint64 current_block_height = 4;
+  // current_block_timestamp defines the current block timestamp.
+  uint64 current_block_timestamp = 5;
+}

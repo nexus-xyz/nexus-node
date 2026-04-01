@@ -1,0 +1,60 @@
+syntax = "proto3";
+package nexus.evm.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "nexus/evm/v1/params.proto";
+
+option go_package = "nexus/x/evm/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // ExecutionPayload defines an operation for submitting an execution payload.
+  rpc ExecutionPayload(MsgExecutionPayload)
+      returns (MsgExecutionPayloadResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "nexus/x/evm/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless
+  // overwritten).
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // params defines the module parameters to update.
+  //
+  // NOTE: All parameters must be supplied.
+  Params params = 2
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgExecutionPayload is the Msg/ExecutionPayload request type.
+message MsgExecutionPayload {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "nexus/x/evm/MsgExecutionPayload";
+
+  // authority is the address that controls the module (defaults to x/gov unless
+  // overwritten).
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // execution_payload contains the JSON-encoded execution payload data.
+  bytes execution_payload = 2;
+}
+
+// MsgExecutionPayloadResponse defines the response structure for executing a
+// MsgExecutionPayload message.
+message MsgExecutionPayloadResponse {}
