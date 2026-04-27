@@ -77,6 +77,23 @@ func (s *ExecutionPayloadTestSuite) SetupTest(
 	behavior mock_engine.EngineBehavior,
 	options ...setupOption,
 ) {
+	t.Helper()
+	prague := uint64(0)
+	s.SetupTestWithChainSpec(t, behavior, nexus.ChainSpec{
+		PragueTimestamp: &prague,
+	}, options...)
+}
+
+// SetupTestWithChainSpec sets fork thresholds on the test keeper.
+func (s *ExecutionPayloadTestSuite) SetupTestWithChainSpec(
+	t *testing.T,
+	behavior mock_engine.EngineBehavior,
+	chainSpec nexus.ChainSpec,
+	options ...setupOption,
+) {
+	t.Helper()
+	require.NoError(t, chainSpec.Validate())
+
 	// Set up JWT secret for the engine client
 	testutil.SetupJWT(t)
 
@@ -117,10 +134,6 @@ func (s *ExecutionPayloadTestSuite) SetupTest(
 	encCfg := moduletestutil.MakeTestEncodingConfig(evmmodule.AppModule{})
 	storeService := runtime.NewKVStoreService(s.storeKey)
 	authority := authtypes.NewModuleAddress(evmtypes.GovModuleName)
-	timestamp := uint64(0)
-	chainSpec := nexus.ChainSpec{
-		EngineV4PragueTimestamp: &timestamp,
-	}
 
 	s.keeper = keeper.NewKeeper(
 		storeService,
@@ -192,6 +205,13 @@ func (c *CustomBehavior) HandleGetPayloadV4(
 	return engine.ExecutionPayloadEnvelope{}, nil
 }
 
+func (c *CustomBehavior) HandleGetPayloadV5(
+	state *mock_engine.EngineState,
+	payloadID engine.PayloadID,
+) (engine.ExecutionPayloadEnvelope, *mock_engine.JsonRPCError) {
+	return c.HandleGetPayloadV4(state, payloadID)
+}
+
 // RetryBehavior simulates network failures that recover after retry
 type RetryBehavior struct {
 	callCount int
@@ -227,6 +247,13 @@ func (r *RetryBehavior) HandleGetPayloadV4(
 	payloadID engine.PayloadID,
 ) (engine.ExecutionPayloadEnvelope, *mock_engine.JsonRPCError) {
 	return engine.ExecutionPayloadEnvelope{}, nil
+}
+
+func (r *RetryBehavior) HandleGetPayloadV5(
+	state *mock_engine.EngineState,
+	payloadID engine.PayloadID,
+) (engine.ExecutionPayloadEnvelope, *mock_engine.JsonRPCError) {
+	return r.HandleGetPayloadV4(state, payloadID)
 }
 
 // RetryWithBlockUpdateBehavior simulates getting a new block during retry
@@ -276,6 +303,13 @@ func (r *RetryWithBlockUpdateBehavior) HandleGetPayloadV4(
 	payloadID engine.PayloadID,
 ) (engine.ExecutionPayloadEnvelope, *mock_engine.JsonRPCError) {
 	return engine.ExecutionPayloadEnvelope{}, nil
+}
+
+func (r *RetryWithBlockUpdateBehavior) HandleGetPayloadV5(
+	state *mock_engine.EngineState,
+	payloadID engine.PayloadID,
+) (engine.ExecutionPayloadEnvelope, *mock_engine.JsonRPCError) {
+	return r.HandleGetPayloadV4(state, payloadID)
 }
 
 func TestExecutionPayload(t *testing.T) {
@@ -654,4 +688,83 @@ func TestExecutionPayload(t *testing.T) {
 		_, err = suite.msgServer.ExecutionPayload(ctx, req)
 		require.Error(t, err)
 	})
+}
+
+// Osaka window: newPayloadV4 only (execution-apis: newPayloadV5 after Amsterdam).
+func TestExecutionPayload_EngineNewPayloadOsakaUsesV4UntilAmsterdam(t *testing.T) {
+	prague := uint64(0)
+	osaka := uint64(1000)
+	amsterdam := uint64(2000)
+	chainSpec := nexus.ChainSpec{
+		PragueTimestamp:    &prague,
+		OsakaTimestamp:     &osaka,
+		AmsterdamTimestamp: &amsterdam,
+	}
+	behavior := &CustomBehavior{
+		newPayloadResponse: engine.PayloadStatusV1{Status: engine.VALID},
+		forkchoiceResponse: engine.ForkChoiceResponse{PayloadStatus: engine.PayloadStatusV1{Status: engine.VALID}},
+	}
+	suite := &ExecutionPayloadTestSuite{}
+	suite.SetupTestWithChainSpec(t, behavior, chainSpec)
+	defer suite.TearDownTest(t)
+
+	payload := testutil.BuildPayload()
+	require.Equal(t, testutil.DefaultStateTimestamp+1, payload.Timestamp,
+		"fixture must be in Osaka range before Amsterdam")
+
+	req := buildPayloadRequest(payload)
+	resp, err := suite.msgServer.ExecutionPayload(suite.ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	var nV4, nV5 int
+	for _, r := range suite.mockEngine.GetRequests() {
+		switch r.Method {
+		case "engine_newPayloadV4":
+			nV4++
+		case "engine_newPayloadV5":
+			nV5++
+		}
+	}
+	require.Positive(t, nV4, "expect newPayloadV4 before Amsterdam")
+	require.Zero(t, nV5, "no newPayloadV5 before Amsterdam")
+}
+
+func TestExecutionPayload_EngineNewPayloadAmsterdamUsesV5(t *testing.T) {
+	prague := uint64(0)
+	osaka := uint64(400)
+	amsterdam := uint64(500)
+	chainSpec := nexus.ChainSpec{
+		PragueTimestamp:    &prague,
+		OsakaTimestamp:     &osaka,
+		AmsterdamTimestamp: &amsterdam,
+	}
+	behavior := &CustomBehavior{
+		newPayloadResponse: engine.PayloadStatusV1{Status: engine.VALID},
+		forkchoiceResponse: engine.ForkChoiceResponse{PayloadStatus: engine.PayloadStatusV1{Status: engine.VALID}},
+	}
+	suite := &ExecutionPayloadTestSuite{}
+	suite.SetupTestWithChainSpec(t, behavior, chainSpec)
+	defer suite.TearDownTest(t)
+
+	payload := testutil.BuildPayload()
+	require.GreaterOrEqual(t, payload.Timestamp, amsterdam,
+		"fixture at or past Amsterdam for newPayloadV5")
+
+	req := buildPayloadRequest(payload)
+	resp, err := suite.msgServer.ExecutionPayload(suite.ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	var nV4, nV5 int
+	for _, r := range suite.mockEngine.GetRequests() {
+		switch r.Method {
+		case "engine_newPayloadV4":
+			nV4++
+		case "engine_newPayloadV5":
+			nV5++
+		}
+	}
+	require.Positive(t, nV5, "expect newPayloadV5 at Amsterdam")
+	require.Zero(t, nV4, "no newPayloadV4 at Amsterdam")
 }

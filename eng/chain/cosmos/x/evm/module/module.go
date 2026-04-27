@@ -89,8 +89,9 @@ func (am AppModule) DefaultGenesis(codec.JSONCodec) json.RawMessage {
 
 // ValidateGenesis used to validate the GenesisState, given in its json.RawMessage form.
 func (am AppModule) ValidateGenesis(_ codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
-	var genState types.GenesisState
-	if err := am.cdc.UnmarshalJSON(bz, &genState); err != nil {
+	// No sdk.Context available here; pass nil logger — the stdlib-fallback warning is skipped.
+	genState, err := types.GenesisStateFromJSON(am.cdc, bz, nil)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 
@@ -99,9 +100,8 @@ func (am AppModule) ValidateGenesis(_ codec.JSONCodec, _ client.TxEncodingConfig
 
 // InitGenesis performs the module's genesis initialization. It returns no validator updates.
 func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, gs json.RawMessage) {
-	var genState types.GenesisState
-	// Initialize global index to index in genesis state
-	if err := am.cdc.UnmarshalJSON(gs, &genState); err != nil {
+	genState, err := types.GenesisStateFromJSON(am.cdc, gs, ctx.Logger())
+	if err != nil {
 		panic(fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err))
 	}
 

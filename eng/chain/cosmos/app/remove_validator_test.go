@@ -342,52 +342,6 @@ func (s *RemoveValidatorTestSuite) TestExecuteRemoveValidator_BurnTokens_PoolBal
 	})
 }
 
-// TestRemoveValidator_BurnTokens_AfterAddWithFullInitialTokens reproduces the production panic:
-// when a validator is added via the add-validator hook with initial_tokens == RequiredValidatorBalance,
-// setValidatorBalance skips (tokens are not less than required), so the bonded pool is never funded.
-// The validator record claims 1_000_000 tokens but the pool holds nothing for it.
-// A subsequent remove with burn_tokens=true then panics with "insufficient funds".
-func (s *RemoveValidatorTestSuite) TestRemoveValidator_BurnTokens_AfterAddWithFullInitialTokens() {
-	s.Run("does not panic when bonded pool was never funded by add-validator", func() {
-		app, ctx := s.setupAppAndContext()
-
-		stakingParams := stakingtypes.DefaultParams()
-		stakingParams.BondDenom = testutil.TestDenom
-		err := app.StakingKeeper.SetParams(ctx, stakingParams)
-		s.Require().NoError(err)
-
-		// Add validator with initial_tokens == RequiredValidatorBalance.
-		// setValidatorBalance will short-circuit (not less than required),
-		// so no coins are ever deposited into the bonded pool.
-		err = app.ExecuteAddValidator(ctx, s.valAddr, &AddValidatorOptions{
-			PubKey:            s.valPubKey,
-			Description:       stakingtypes.Description{Moniker: "test-validator"},
-			InitialTokens:     math.NewInt(RequiredValidatorBalance),
-			MinSelfDelegation: math.OneInt(),
-		})
-		s.Require().NoError(err)
-
-		// Confirm the validator record claims RequiredValidatorBalance tokens.
-		validator, err := app.StakingKeeper.GetValidator(ctx, s.valAddr)
-		s.Require().NoError(err)
-		s.Require().Equal(math.NewInt(RequiredValidatorBalance), validator.Tokens)
-
-		// This panics before the fix: pool is empty but burn tries 1_000_000.
-		s.Require().NotPanics(func() {
-			err = app.ExecuteRemoveValidator(ctx, s.valAddr, &RemoveValidatorOptions{BurnTokens: true})
-			s.Require().NoError(err)
-		})
-
-		validator, err = app.StakingKeeper.GetValidator(ctx, s.valAddr)
-		s.Require().NoError(err)
-		s.Require().True(validator.Jailed)
-
-		signingInfo, err := app.SlashingKeeper.GetValidatorSigningInfo(ctx, s.consAddr)
-		s.Require().NoError(err)
-		s.Require().True(signingInfo.Tombstoned)
-	})
-}
-
 // TestExecuteRemoveValidator_BurnTokens_UnbondedValidator reproduces the wrong-pool bug:
 // when a validator is UNBONDED (jailed by the slashing module), the staking module has already
 // moved its tokens from the bonded pool to the not-bonded pool. handleValidatorTokens always

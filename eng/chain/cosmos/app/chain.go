@@ -10,7 +10,9 @@ import (
 )
 
 type Forks struct {
-	EngineV4PragueTimestamp *uint64 `yaml:"prague_timestamp,omitempty"`
+	PragueTimestamp    *uint64 `yaml:"prague_timestamp,omitempty"`
+	OsakaTimestamp     *uint64 `yaml:"osaka_timestamp,omitempty"`
+	AmsterdamTimestamp *uint64 `yaml:"amsterdam_timestamp,omitempty"`
 }
 
 type ForksConfig struct {
@@ -29,7 +31,13 @@ func LoadChainSpec() nexus.ChainSpec {
 		panic(fmt.Errorf("failed to decode config %w", err))
 	}
 
-	return nexus.ChainSpec{
-		EngineV4PragueTimestamp: config.Forks.EngineV4PragueTimestamp,
+	spec := nexus.ChainSpec{
+		PragueTimestamp:    config.Forks.PragueTimestamp,
+		OsakaTimestamp:     config.Forks.OsakaTimestamp,
+		AmsterdamTimestamp: config.Forks.AmsterdamTimestamp,
 	}
+	if err := spec.Validate(); err != nil {
+		panic(err)
+	}
+	return spec
 }

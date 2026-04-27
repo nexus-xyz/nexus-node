@@ -66,6 +66,13 @@ func (b *DefaultEngineBehavior) HandleGetPayloadV4(
 	}
 }
 
+func (b *DefaultEngineBehavior) HandleGetPayloadV5(
+	state *EngineState,
+	payloadID engine.PayloadID,
+) (engine.ExecutionPayloadEnvelope, *JsonRPCError) {
+	return b.HandleGetPayloadV4(state, payloadID)
+}
+
 func newDefaultPayload(payloadAttributes *engine.PayloadAttributes) *engine.ExecutableData {
 	return &engine.ExecutableData{
 		ParentHash:       common.HexToHash("0xabcdef01"),

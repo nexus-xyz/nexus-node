@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/log"
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
+	upgradetypes "cosmossdk.io/x/upgrade/types"
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmttypes "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
@@ -17,6 +18,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/stretchr/testify/suite"
 
 	"nexus/x/evm/tests/testutil"
@@ -147,7 +152,7 @@ func (s *ProposalTestSuite) createProposal(
 
 // Test makeProcessProposalHandler function
 func (s *ProposalTestSuite) TestMakeProcessProposalHandler() {
-	handler := makeProcessProposalHandler(s.router, s.app.TxConfig())
+	handler := makeProcessProposalHandler(s.router, s.app.TxConfig(), maxCosmosTxsPerBlock)
 
 	s.Run("handler is created successfully", func() {
 		s.Require().NotNil(handler)
@@ -260,7 +265,7 @@ func (s *ProposalTestSuite) TestMakeProcessProposalHandler() {
 		emptyRouter := baseapp.NewMsgServiceRouter()
 		emptyRouter.SetInterfaceRegistry(s.app.InterfaceRegistry())
 
-		emptyHandler := makeProcessProposalHandler(emptyRouter, s.app.TxConfig())
+		emptyHandler := makeProcessProposalHandler(emptyRouter, s.app.TxConfig(), maxCosmosTxsPerBlock)
 
 		rawTx := s.createValidTx()
 		commit := s.createValidCommit()
@@ -406,6 +411,137 @@ func (s *ProposalTestSuite) TestValidateTx() {
 		tx := txBuilder.GetTx()
 		err = validateTx(tx)
 		s.Require().NoError(err)
+	})
+}
+
+func (s *ProposalTestSuite) TestProcessProposalCosmosTxAllowlist() {
+	handler := makeProcessProposalHandler(s.router, s.app.TxConfig(), maxCosmosTxsPerBlock)
+	commit := s.createValidCommit()
+	evmTx := s.createValidTx()
+	_, _, voter := testdata.KeyTestPubAddr()
+
+	s.Run("accepts MsgVote before EVM payload", func() {
+		govTx := s.createTx(&govv1.MsgVote{ProposalId: 1, Voter: voter.String(), Option: govv1.OptionYes})
+		req := s.createProposal(2, [][]byte{govTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+
+	s.Run("accepts MsgVoteWeighted before EVM payload", func() {
+		govTx := s.createTx(&govv1.MsgVoteWeighted{
+			ProposalId: 1,
+			Voter:      voter.String(),
+			Options:    []*govv1.WeightedVoteOption{{Option: govv1.OptionYes, Weight: "1.0"}},
+		})
+		req := s.createProposal(2, [][]byte{govTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+
+	s.Run("accepts MsgDeposit before EVM payload", func() {
+		govTx := s.createTx(&govv1.MsgDeposit{
+			ProposalId: 1,
+			Depositor:  voter.String(),
+			Amount:     sdk.NewCoins(sdk.NewInt64Coin("atnex", 1000)),
+		})
+		req := s.createProposal(2, [][]byte{govTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+
+	s.Run("rejects two gov txs when maxCosmosTxsPerBlock is 1", func() {
+		govTx := s.createTx(&govv1.MsgVote{ProposalId: 1, Voter: voter.String(), Option: govv1.OptionYes})
+		req := s.createProposal(2, [][]byte{govTx, govTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_REJECT, resp.Status)
+	})
+
+	s.Run("rejects gov tx as last tx without EVM payload", func() {
+		govTx := s.createTx(&govv1.MsgVote{ProposalId: 1, Voter: voter.String(), Option: govv1.OptionYes})
+		req := s.createProposal(2, [][]byte{govTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_REJECT, resp.Status)
+	})
+
+	s.Run("rejects EVM payload before gov tx", func() {
+		govTx := s.createTx(&govv1.MsgVote{ProposalId: 1, Voter: voter.String(), Option: govv1.OptionYes})
+		req := s.createProposal(2, [][]byte{evmTx, govTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_REJECT, resp.Status)
+	})
+
+	s.Run("rejects non-permitted message type", func() {
+		_, _, validator := testdata.KeyTestPubAddr()
+		stakingTx := s.createTx(&stakingtypes.MsgDelegate{
+			DelegatorAddress: voter.String(),
+			ValidatorAddress: sdk.ValAddress(validator).String(),
+			Amount:           sdk.NewInt64Coin("atnex", 1000),
+		})
+		req := s.createProposal(2, [][]byte{stakingTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_REJECT, resp.Status)
+	})
+
+	s.Run("accepts MsgSoftwareUpgrade before EVM payload", func() {
+		upgradeTx := s.createTx(&upgradetypes.MsgSoftwareUpgrade{
+			Authority: authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+			Plan:      upgradetypes.Plan{Name: "halt/test", Height: 100, Info: "test halt"},
+		})
+		req := s.createProposal(2, [][]byte{upgradeTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+
+	s.Run("accepts MsgCancelUpgrade before EVM payload", func() {
+		cancelTx := s.createTx(&upgradetypes.MsgCancelUpgrade{
+			Authority: authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+		})
+		req := s.createProposal(2, [][]byte{cancelTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+
+	s.Run("accepts MsgSend before EVM payload", func() {
+		_, _, recipient := testdata.KeyTestPubAddr()
+		sendTx := s.createTx(&banktypes.MsgSend{
+			FromAddress: voter.String(),
+			ToAddress:   recipient.String(),
+			Amount:      sdk.NewCoins(sdk.NewInt64Coin("atnex", 1000)),
+		})
+		req := s.createProposal(2, [][]byte{sendTx, evmTx}, commit)
+		resp, err := handler(s.ctx, &req)
+		s.Require().NoError(err)
+		s.Require().Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
+	})
+}
+
+func (s *ProposalTestSuite) TestMakePrepareProposalHandlerHeight1() {
+	handler := makePrepareProposalHandler(&s.app.EvmKeeper, s.app.TxConfig(), maxCosmosTxsPerBlock)
+	_, _, voter := testdata.KeyTestPubAddr()
+
+	s.Run("does not include cosmos txs at height 1", func() {
+		cosmosTx := s.createTx(&banktypes.MsgSend{
+			FromAddress: voter.String(),
+			ToAddress:   voter.String(),
+			Amount:      sdk.NewCoins(sdk.NewInt64Coin("atnex", 1000)),
+		})
+		ctx := s.ctx.WithBlockHeight(1)
+		req := &abci.RequestPrepareProposal{
+			Height: 1,
+			Txs:    [][]byte{cosmosTx},
+		}
+		resp, err := handler(ctx, req)
+		s.Require().NoError(err)
+		s.Require().Empty(resp.Txs, "height 1 block must not contain any transactions")
 	})
 }
 

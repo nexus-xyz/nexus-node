@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -19,22 +20,41 @@ import (
 	"nexus/x/evm/types"
 )
 
-// Use a timeout of 1s to prepare the proposal.
-const prepareTimeout = 1 * time.Second
+// lastLoggedRPCVersion remembers the engine_getPayloadVx version we logged last
+// so we emit a single Info line when the active version changes across a fork
+// boundary (V3→V4 at Prague, V4→V5 at Osaka). Per-process state is exactly
+// what we want: each validator emits its own transition marker. Zero value
+// means "never logged yet"; we seed it on the first PrepareProposal.
+var lastLoggedRPCVersion atomic.Int32
+
+// Upper bound for forkchoice + getPayload during PrepareProposal when the incoming sdk.Context
+// has no (or a very long) deadline. In normal consensus, CometBFT’s ABCI deadline is shorter and
+// wins (context.WithTimeout uses the earlier of the two). A generous cap avoids failing tests and
+// any code path that still uses a background context while the EL catches up after forkchoice.
+const prepareTimeout = 10 * time.Second
 
 // Wait for `buildDelay` to ensure the payload is available.
 const buildDelay = 100 * time.Millisecond
 
+// Observability and safety around engine_getPayload "unknown payload" retries (benign right after
+// forkchoiceUpdated; a long streak of only-unknown often indicates a fork-matrix / RPC mismatch).
+const (
+	unknownPayloadLogEvery = 25
+	// maxUnknownPayloadPoll caps steady unknown-only polling when nothing else cancels the context
+	// (rare). Attempt limit is maxUnknownPayloadPoll / retryDelay (~5s of sleeps alone at the default
+	// 10ms backoff; each attempt also pays RPC latency).
+	maxUnknownPayloadPoll                = 5 * time.Second
+	maxConsecutiveUnknownPayloadAttempts = int(maxUnknownPayloadPoll / retryDelay)
+)
+
 func (k *Keeper) PrepareProposal(ctx sdk.Context, req *abci.RequestPrepareProposal) (
 	*abci.ResponsePrepareProposal, error,
 ) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, prepareTimeout)
+	// sdk.Context is not a context.Context; use the embedded Go context so cancellation/deadlines
+	// from the SDK propagate into engine RPCs.
+	timeoutCtx, cancel := context.WithTimeout(ctx.Context(), prepareTimeout)
 	defer cancel()
 	ctx = ctx.WithContext(timeoutCtx)
-
-	if len(req.Txs) > 0 {
-		return nil, errors.New("unexpected transactions in proposal")
-	}
 
 	if req.Height == 1 {
 		return &abci.ResponsePrepareProposal{}, nil
@@ -50,10 +70,37 @@ func (k *Keeper) PrepareProposal(ctx sdk.Context, req *abci.RequestPreparePropos
 	}
 	timestamp := k.CalculateTimestamp(sdkCtx, height, state.Timestamp)
 
+	// Emit a single Info line per validator each time the engine_getPayloadVx
+	// version changes (i.e. when a hard fork activates). This makes fork
+	// activation visible from the Cosmos side even if Reth is misconfigured
+	// for the new version (which is the failure mode we hit on devnet during
+	// the Osaka activation).
+	rpcVer := int32(k.chainSpec.GetPayloadEngineRPCVersion(timestamp))
+	if prev := lastLoggedRPCVersion.Swap(rpcVer); prev != rpcVer {
+		sdkCtx.Logger().Info(
+			"PrepareProposal: engine getPayload RPC version changed",
+			"height", height,
+			"timestamp", timestamp,
+			"from_get_payload_rpc_version", prev,
+			"to_get_payload_rpc_version", rpcVer,
+		)
+	}
+
 	var payloadID engine.PayloadID
 	err = retry(ctx, func(ctx context.Context) (bool, error) {
 		response, err := k.buildExecutionPayload(ctx, sdkCtx, appHash, height)
 		if err != nil {
+			// retry() will swallow this error and try again until the SDK
+			// context expires. Without this Warn the Cosmos logs go silent
+			// while the EL is failing forkchoiceUpdated, which is exactly
+			// what made the Osaka halt opaque.
+			sdkCtx.Logger().Warn(
+				"PrepareProposal: forkchoiceUpdated failed, will retry",
+				"height", height,
+				"timestamp", timestamp,
+				"get_payload_rpc_version", rpcVer,
+				"err", err.Error(),
+			)
 			return false, nil
 		}
 
@@ -80,16 +127,61 @@ func (k *Keeper) PrepareProposal(ctx sdk.Context, req *abci.RequestPreparePropos
 	}
 
 	var payloadResponse *engine.ExecutionPayloadEnvelope
+	consecutiveUnknownPayload := 0
 	err = retry(ctx, func(ctx context.Context) (bool, error) {
-		if k.chainSpec.IsEngineV4PragueEnabled(timestamp) {
+		if k.chainSpec.IsOsakaActive(timestamp) {
+			payloadResponse, err = k.engineClient.GetPayloadV5(ctx, payloadID)
+		} else if k.chainSpec.IsPragueActive(timestamp) {
 			payloadResponse, err = k.engineClient.GetPayloadV4(ctx, payloadID)
 		} else {
 			payloadResponse, err = k.engineClient.GetPayloadV3(ctx, payloadID)
 		}
+		// UnknownPayload is common immediately after forkchoiceUpdated; retry() will sleep and
+		// repeat until getPayload succeeds or this PrepareProposal context is done (not infinite).
 		if isPayloadUnknown(err) {
-			return false, err
+			consecutiveUnknownPayload++
+			rpcVer := k.chainSpec.GetPayloadEngineRPCVersion(timestamp)
+			if consecutiveUnknownPayload == 1 || consecutiveUnknownPayload%unknownPayloadLogEvery == 0 {
+				sdkCtx.Logger().Warn(
+					"PrepareProposal: engine getPayload unknown payload, retrying",
+					"attempt", consecutiveUnknownPayload,
+					"height", height,
+					"get_payload_rpc_version", rpcVer,
+					"payload_id", payloadID.String(),
+					"err", err.Error(),
+				)
+			}
+			if consecutiveUnknownPayload >= maxConsecutiveUnknownPayloadAttempts {
+				minWall := time.Duration(consecutiveUnknownPayload) * retryDelay
+				return false, fmt.Errorf(
+					"PrepareProposal: engine getPayload still unknown after ~%s of polling "+
+						"(%d attempts, %s between attempts; height=%d get_payload_rpc_version=%d payload_id=%s): %w",
+					minWall.Round(time.Millisecond),
+					consecutiveUnknownPayload,
+					retryDelay,
+					height,
+					rpcVer,
+					payloadID.String(),
+					err,
+				)
+			}
+			return false, nil
 		}
+		consecutiveUnknownPayload = 0
 		if err != nil {
+			// Non-UnknownPayload errors here (e.g. unknown method, version
+			// mismatch, transport failures) were previously swallowed by the
+			// retry loop, leaving no breadcrumb when the EL rejected the
+			// call. Surface them at Warn so a fork-matrix mismatch is
+			// immediately visible.
+			sdkCtx.Logger().Warn(
+				"PrepareProposal: engine getPayload failed (non-unknown), retrying",
+				"height", height,
+				"timestamp", timestamp,
+				"get_payload_rpc_version", rpcVer,
+				"payload_id", payloadID.String(),
+				"err", err.Error(),
+			)
 			return false, nil
 		}
 

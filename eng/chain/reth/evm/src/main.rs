@@ -25,7 +25,7 @@ pub struct NexusArgs {
 
 pub fn main() -> eyre::Result<()> {
     Cli::<NexusChainSpecParser, NexusArgs>::parse().run(|mut builder, args| async move {
-        let chain_spec = args.nexus_config.apply_forks(&builder.config().chain);
+        let chain_spec = args.nexus_config.apply_forks(&builder.config().chain)?;
         builder.config_mut().chain = Arc::new(chain_spec);
 
         let handle = builder

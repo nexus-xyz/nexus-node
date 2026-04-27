@@ -128,7 +128,7 @@ func (s *ValidatorTestSuite) TestCompleteSlashJailUnjailFlow() {
 		s.Require().Equal(slashedTokens, validator.Tokens, "Tokens should remain the same after jailing")
 
 		// Step 3: Unjail the validator using ExecuteUnjailing
-		err = app.ExecuteUnjailing(ctx, s.valAddr)
+		err = app.ExecuteUnjailing(ctx, s.valAddr, nil)
 		s.Require().NoError(err)
 
 		// Verify validator is unjailed
@@ -136,7 +136,7 @@ func (s *ValidatorTestSuite) TestCompleteSlashJailUnjailFlow() {
 		s.Require().NoError(err)
 		finalTokens := validator.Tokens
 		s.Require().False(validator.Jailed, "Validator should be unjailed")
-		s.Require().Equal(initialTokens, finalTokens, "Tokens should be restored to initial amount after unjailing")
+		s.Require().Equal(slashedTokens, finalTokens, "Tokens should remain at slashed amount after unjailing")
 
 	})
 }

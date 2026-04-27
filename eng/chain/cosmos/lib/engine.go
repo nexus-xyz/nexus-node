@@ -18,9 +18,11 @@ const (
 	DefaultTimeout      = 10 * time.Second
 	newPayloadV3        = "engine_newPayloadV3"
 	newPayloadV4        = "engine_newPayloadV4"
+	newPayloadV5        = "engine_newPayloadV5"
 	forkchoiceUpdatedV3 = "engine_forkchoiceUpdatedV3"
 	getPayloadV3        = "engine_getPayloadV3"
 	getPayloadV4        = "engine_getPayloadV4"
+	getPayloadV5        = "engine_getPayloadV5"
 )
 
 type EngineClient interface {
@@ -32,8 +34,17 @@ type EngineClient interface {
 		beaconRoot *common.Hash,
 	) (engine.PayloadStatusV1, error)
 
-	// NewPayloadV4 informs the engine that a new payload has been created.
+	// NewPayloadV4 informs the engine that a new payload has been created (Prague / engine API V4).
 	NewPayloadV4(
+		ctx context.Context,
+		params engine.ExecutableData,
+		versionedHashes []common.Hash,
+		beaconRoot *common.Hash,
+		requests *types.ConsensusRequests,
+	) (engine.PayloadStatusV1, error)
+
+	// NewPayloadV5 informs the engine that a new payload has been created (Amsterdam / engine API V5).
+	NewPayloadV5(
 		ctx context.Context,
 		params engine.ExecutableData,
 		versionedHashes []common.Hash,
@@ -51,8 +62,11 @@ type EngineClient interface {
 	// GetPayloadV3 requests a cached payload from the engine.
 	GetPayloadV3(ctx context.Context, payloadID engine.PayloadID) (*engine.ExecutionPayloadEnvelope, error)
 
-	// GetPayloadV4 requests a cached payload from the engine.
+	// GetPayloadV4 requests a cached payload from the engine (Prague / engine API V4).
 	GetPayloadV4(ctx context.Context, payloadID engine.PayloadID) (*engine.ExecutionPayloadEnvelope, error)
+
+	// GetPayloadV5 requests a cached payload from the engine (Osaka / engine API V5).
+	GetPayloadV5(ctx context.Context, payloadID engine.PayloadID) (*engine.ExecutionPayloadEnvelope, error)
 }
 
 type engineClient struct {
@@ -115,6 +129,28 @@ func (c *engineClient) NewPayloadV4(
 	return engine.PayloadStatusV1{}, fmt.Errorf("new payload v4: %w, response: %v", err, response)
 }
 
+func (c *engineClient) NewPayloadV5(
+	ctx context.Context,
+	params engine.ExecutableData,
+	versionedHashes []common.Hash,
+	beaconRoot *common.Hash,
+	requests *types.ConsensusRequests,
+) (engine.PayloadStatusV1, error) {
+	var response engine.PayloadStatusV1
+
+	requestsData := make([]hexutil.Bytes, 0)
+	if requests != nil {
+		requestsData = requests.Encode()
+	}
+
+	err := c.rpcClient.CallContext(ctx, &response, newPayloadV5, params, versionedHashes, beaconRoot, requestsData)
+	if err == nil {
+		return response, nil
+	}
+
+	return engine.PayloadStatusV1{}, fmt.Errorf("new payload v5: %w, response: %v", err, response)
+}
+
 func (c *engineClient) ForkchoiceUpdatedV3(
 	ctx context.Context,
 	update engine.ForkchoiceStateV1,
@@ -160,6 +196,19 @@ func (c *engineClient) GetPayloadV4(
 	return nil, fmt.Errorf("get payload v4: %w, response: %v", err, response)
 }
 
+func (c *engineClient) GetPayloadV5(
+	ctx context.Context,
+	payloadID engine.PayloadID,
+) (*engine.ExecutionPayloadEnvelope, error) {
+	var response engine.ExecutionPayloadEnvelope
+	err := c.rpcClient.CallContext(ctx, &response, getPayloadV5, payloadID)
+	if err == nil {
+		return &response, nil
+	}
+
+	return nil, fmt.Errorf("get payload v5: %w, response: %v", err, response)
+}
+
 // stubEngineClient is a no-op engine client used when JWT is not configured.
 // It returns SYNCING status for all operations, indicating the engine is not available.
 type stubEngineClient struct{}
@@ -188,6 +237,16 @@ func (s *stubEngineClient) NewPayloadV4(
 	return engine.PayloadStatusV1{Status: engine.SYNCING}, nil
 }
 
+func (s *stubEngineClient) NewPayloadV5(
+	_ context.Context,
+	_ engine.ExecutableData,
+	_ []common.Hash,
+	_ *common.Hash,
+	_ *types.ConsensusRequests,
+) (engine.PayloadStatusV1, error) {
+	return engine.PayloadStatusV1{Status: engine.SYNCING}, nil
+}
+
 func (s *stubEngineClient) ForkchoiceUpdatedV3(
 	_ context.Context,
 	_ engine.ForkchoiceStateV1,
@@ -206,6 +265,13 @@ func (s *stubEngineClient) GetPayloadV3(
 }
 
 func (s *stubEngineClient) GetPayloadV4(
+	_ context.Context,
+	_ engine.PayloadID,
+) (*engine.ExecutionPayloadEnvelope, error) {
+	return nil, fmt.Errorf("EVM not enabled (set EVM_ENABLED=true to enable)")
+}
+
+func (s *stubEngineClient) GetPayloadV5(
 	_ context.Context,
 	_ engine.PayloadID,
 ) (*engine.ExecutionPayloadEnvelope, error) {

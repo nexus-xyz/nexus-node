@@ -83,6 +83,38 @@ func NewMockEngine(addr string, behavior EngineBehavior) *MockEngine {
 				parentBeaconBlockRoot,
 				nil,
 			)
+		case "engine_newPayloadV5":
+			// Delegate to V4 handler (same params).
+			if len(req.Params) < 3 {
+				respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid params"}
+				break
+			}
+			var payload engine.ExecutableData
+			if err := json.Unmarshal(req.Params[0], &payload); err != nil {
+				respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid payload"}
+				break
+			}
+			var versionedHashes []common.Hash
+			if err := json.Unmarshal(req.Params[1], &versionedHashes); err != nil {
+				respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid versioned hashes"}
+				break
+			}
+			var parentBeaconBlockRoot *common.Hash
+			if string(req.Params[2]) != "null" {
+				var root common.Hash
+				if err := json.Unmarshal(req.Params[2], &root); err != nil {
+					respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid parent beacon block root"}
+					break
+				}
+				parentBeaconBlockRoot = &root
+			}
+			respData, respErr = m.behavior.HandleNewPayloadV4(
+				m.state,
+				payload,
+				versionedHashes,
+				parentBeaconBlockRoot,
+				nil,
+			)
 		case "engine_forkchoiceUpdatedV3":
 			if len(req.Params) < 1 {
 				respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid params"}
@@ -113,6 +145,17 @@ func NewMockEngine(addr string, behavior EngineBehavior) *MockEngine {
 				break
 			}
 			respData, respErr = m.behavior.HandleGetPayloadV4(m.state, payloadID)
+		case "engine_getPayloadV5":
+			if len(req.Params) < 1 {
+				respErr = &JsonRPCError{Code: InvalidParams, Message: "invalid params"}
+				break
+			}
+			var payloadID engine.PayloadID
+			if err := json.Unmarshal(req.Params[0], &payloadID); err != nil {
+				respErr = &JsonRPCError{Code: InvalidPayloadID, Message: "invalid payload id"}
+				break
+			}
+			respData, respErr = m.behavior.HandleGetPayloadV5(m.state, payloadID)
 		default:
 			respData = make(map[string]interface{})
 		}

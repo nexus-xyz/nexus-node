@@ -1,10 +1,11 @@
 # gRPC Communication: L1 (Cosmos) and Core
 
-This document describes how to run and test the bidirectional gRPC communication between the L1 (Cosmos) blockchain and the Core coprocessor.
+This document describes how to run and test the bidirectional gRPC communication between the L1 (Cosmos) blockchain and
+the Core coprocessor.
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────┐                    ┌─────────────────────┐
 │     L1 (Cosmos)     │                    │   Core Coprocessor  │
 │                     │                    │                     │
@@ -22,12 +23,14 @@ This document describes how to run and test the bidirectional gRPC communication
 ```
 
 **Communication Directions:**
+
 - **Cosmos → Core (Port 50051)**: L1 sends block payloads and fork choice updates to Core for execution
 - **Core → Cosmos (Port 50052)**: Core sends ping/health checks to verify L1 connectivity
 
 ## Prerequisites
 
 1. **grpcurl** - Command-line gRPC client for testing
+
    ```bash
    # macOS
    brew install grpcurl
@@ -37,8 +40,8 @@ This document describes how to run and test the bidirectional gRPC communication
    ```
 
 2. **Repositories**
-   - L1: https://github.com/nexus-xyz/l1
-   - Core: https://github.com/nexus-xyz/core
+   - L1: <https://github.com/nexus-xyz/l1>
+   - Core: <https://github.com/nexus-xyz/core>
 
 ## Running the Servers
 
@@ -59,8 +62,9 @@ RUST_LOG=info cargo run -p coprocessor --features grpc,l1_client -- --enable-grp
 The Core server listens on `0.0.0.0:50051` by default.
 
 **Environment Variables:**
-| Variable | Default | Description |
-|----------|---------|-------------|
+
+| Variable    | Default | Description                   |
+| ----------- | ------- | ----------------------------- |
 | `GRPC_PORT` | `50051` | Port for the Core gRPC server |
 
 ### 2. Start L1 with Docker (Localnet)
@@ -68,7 +72,8 @@ The Core server listens on `0.0.0.0:50051` by default.
 The `l1-build/test-infrastructure` provides a Docker Compose setup for running a local multi-validator network.
 
 **Directory Structure Required:**
-```
+
+```text
 /your/workspace/
 ├── l1/                        # L1 repo
 ├── l1-build/
@@ -81,13 +86,14 @@ The `l1-build/test-infrastructure` provides a Docker Compose setup for running a
 The following changes are required in `docker-compose.yaml` to enable gRPC:
 
 1. Add `GRPC_SERVER_ENABLED` to `x-cosmos-environment`:
+
    ```yaml
-   x-cosmos-environment: &cosmos-environment
-     # ... existing vars ...
+   x-cosmos-environment: &cosmos-environment # ... existing vars ...
      GRPC_SERVER_ENABLED: ${GRPC_SERVER_ENABLED:-false}
    ```
 
 2. Expose port 50052 on `cosmos-validator-0`:
+
    ```yaml
    cosmos-validator-0:
      ports:
@@ -118,11 +124,12 @@ GRPC_SERVER_ENABLED=true just start
 ```
 
 **L1 Environment Variables:**
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GRPC_SERVER_ENABLED` | `false` | Enable the L1 gRPC server |
-| `COSMOS_GRPC_ADDR` | `0.0.0.0:50052` | Address for the L1 gRPC server |
-| `CORE_GRPC_ADDR` | `localhost:50051` | Address of the Core gRPC server |
+
+| Variable              | Default           | Description                     |
+| --------------------- | ----------------- | ------------------------------- |
+| `GRPC_SERVER_ENABLED` | `false`           | Enable the L1 gRPC server       |
+| `COSMOS_GRPC_ADDR`    | `0.0.0.0:50052`   | Address for the L1 gRPC server  |
+| `CORE_GRPC_ADDR`      | `localhost:50051` | Address of the Core gRPC server |
 
 ## Testing with grpcurl
 

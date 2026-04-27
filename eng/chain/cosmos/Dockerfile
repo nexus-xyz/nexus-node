@@ -11,16 +11,13 @@ WORKDIR /workspace
 
 # Build deps first
 COPY go.* ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod tidy
 
 # Copy source code
 COPY . ./
 
 # Build the binary manually (no ignite)
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go build -o /usr/bin/nexusd ./cmd/nexusd
+RUN go build -o /usr/bin/nexusd ./cmd/nexusd
 
 # Final runtime image
 FROM alpine:3.22

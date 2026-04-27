@@ -27,7 +27,8 @@ const (
 )
 
 type unjailParams struct {
-	validator string `yaml:"validator"`
+	validator    string
+	targetTokens sdkmath.Int // zero value means no token adjustment
 }
 
 type addValidatorParams struct {
@@ -101,9 +102,22 @@ func (app *App) LoadHooks() BlockHooks {
 func (app *App) parseUnjailHook(hook BlockHook) unjailParams {
 	params := expectParamsIsMap(hook.Params, "unjail")
 
-	return unjailParams{
+	p := unjailParams{
 		validator: requireFieldIsString(params, "validator"),
 	}
+
+	// Optional: target_tokens — after unjailing, mint and self-delegate until the
+	// validator holds at least this many tokens. Use this to restore voting power
+	// when a liveness slash has reduced tokens below the PowerReduction threshold.
+	// If the validator already holds >= target_tokens, no minting occurs.
+	if raw, ok := params["target_tokens"]; ok {
+		p.targetTokens = parseInt(raw, "target_tokens")
+		if !p.targetTokens.IsPositive() {
+			panic(fmt.Sprintf("target_tokens must be positive, got %s", p.targetTokens.String()))
+		}
+	}
+
+	return p
 }
 
 // parseAddValidatorHook validates and returns parameters for an add-validator hook.
@@ -127,18 +141,16 @@ func (app *App) parseAddValidatorHook(hook BlockHook) addValidatorParams {
 		MinSelfDelegation: parseInt(minSelfDelegationRaw, "min_self_delegation"),
 	}
 
-	// Optional: initial_tokens — if provided, must equal RequiredValidatorBalance.
-	// setValidatorBalance always enforces this amount, so any other value is invalid.
-	if initialTokensRaw, ok := paramsMap["initial_tokens"]; ok {
-		initialTokens := parseInt(initialTokensRaw, "initial_tokens")
-		if !initialTokens.Equal(sdkmath.NewInt(RequiredValidatorBalance)) {
-			panic(fmt.Sprintf(
-				"initial_tokens must equal RequiredValidatorBalance (%d), got %s",
-				RequiredValidatorBalance, initialTokens.String(),
-			))
-		}
-		opts.InitialTokens = initialTokens
+	// Required: initial_tokens — amount to mint and self-delegate for this validator.
+	initialTokensRaw, ok := paramsMap["initial_tokens"]
+	if !ok {
+		panic("failed to read initial_tokens field from params")
 	}
+	initialTokens := parseInt(initialTokensRaw, "initial_tokens")
+	if !initialTokens.IsPositive() {
+		panic(fmt.Sprintf("initial_tokens must be positive, got %s", initialTokens.String()))
+	}
+	opts.InitialTokens = initialTokens
 
 	return addValidatorParams{
 		validator: validatorStr,
@@ -210,11 +222,12 @@ func (app *App) performUnjailHook(ctx sdk.Context, hook BlockHook) error {
 		return err
 	}
 
-	if err := app.ExecuteUnjailing(ctx, valAddr); err != nil {
-		return err
+	var targetTokens *sdkmath.Int
+	if !params.targetTokens.IsNil() && params.targetTokens.IsPositive() {
+		targetTokens = &params.targetTokens
 	}
 
-	return nil
+	return app.ExecuteUnjailing(ctx, valAddr, targetTokens)
 }
 
 // performAddValidatorHook performs an add-validator hook.

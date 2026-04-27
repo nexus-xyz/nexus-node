@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["evm"]
+members = ["evm", "block-time-util"]
+default-members = ["evm"]
 
 [workspace.package]
 edition = "2024"
@@ -11,6 +12,7 @@ alloy-primitives = "1.5.2"
 alloy-consensus = "1.5.2"
 alloy-eips = "1.5.2"
 alloy-evm = "0.26.3"
+alloy-provider = { version = "1.5.2", features = ["reqwest", "reqwest-rustls-tls"] }
 alloy-rpc-types-engine = "1.0.41"
 clap = { version = "4", features = ["derive", "env"] }
 eyre = "0.6.12"

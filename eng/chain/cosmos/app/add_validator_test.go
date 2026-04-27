@@ -97,6 +97,7 @@ func (s *AddValidatorTestSuite) setBlockHookConfig(app *App, config BlockHooksCo
 func (s *AddValidatorTestSuite) buildAddValidatorParams(
 	minSelf math.Int,
 	bondDenom string,
+	initialTokens math.Int,
 ) map[string]interface{} {
 	params := map[string]interface{}{
 		"validator": s.valAddr.String(),
@@ -106,19 +107,21 @@ func (s *AddValidatorTestSuite) buildAddValidatorParams(
 		},
 		"min_self_delegation": minSelf.String(),
 		"bond_denom":          bondDenom,
+		"initial_tokens":      initialTokens.String(),
 	}
 
 	return params
 }
 
-func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_TopsUpToRequiredBalance() {
+func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_MintsInitialTokens() {
 	app, ctx := s.setupAppAndContext()
 
 	valsBefore, err := app.StakingKeeper.GetAllValidators(ctx)
 	s.Require().NoError(err)
 	beforeCount := len(valsBefore)
 
-	params := s.buildAddValidatorParams(math.OneInt(), sdk.DefaultBondDenom)
+	initialTokens := math.NewInt(1_000_000)
+	params := s.buildAddValidatorParams(math.OneInt(), sdk.DefaultBondDenom, initialTokens)
 	config := BlockHooksConfig{
 		Hooks: []BlockHook{
 			{
@@ -141,52 +144,46 @@ func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_TopsUpToRequiredBalanc
 
 	validator, err := app.StakingKeeper.GetValidator(ctx, s.valAddr)
 	s.Require().NoError(err)
-	s.Require().Equal(math.NewInt(RequiredValidatorBalance), validator.Tokens)
+	s.Require().Equal(initialTokens, validator.Tokens)
 	s.Require().False(validator.Jailed)
 }
 
-// TestAddValidator_BondedPoolFunded asserts the invariant that after ExecuteAddValidator,
+// TestAddValidator_BondedPoolFunded asserts that after ExecuteAddValidator,
 // the bonded pool holds coins equal to the validator's token count.
-// Tests both omitting initial_tokens (nil) and supplying RequiredValidatorBalance explicitly.
 func (s *AddValidatorTestSuite) TestAddValidator_BondedPoolFunded() {
-	for _, initialTokens := range []math.Int{
-		{}, // nil — initial_tokens omitted
-		math.NewInt(RequiredValidatorBalance),
-	} {
-		s.SetupTest()
-		app, ctx := s.setupAppAndContext()
+	app, ctx := s.setupAppAndContext()
 
-		bondedPoolAddr := app.AuthKeeper.GetModuleAddress(stakingtypes.BondedPoolName)
-		bondedBefore := app.BankKeeper.GetBalance(ctx, bondedPoolAddr, sdk.DefaultBondDenom)
+	initialTokens := math.NewInt(1_000_000)
+	bondedPoolAddr := app.AuthKeeper.GetModuleAddress(stakingtypes.BondedPoolName)
+	bondedBefore := app.BankKeeper.GetBalance(ctx, bondedPoolAddr, sdk.DefaultBondDenom)
 
-		err := app.ExecuteAddValidator(ctx, s.valAddr, &AddValidatorOptions{
-			PubKey:            s.valPubKey,
-			Description:       stakingtypes.Description{Moniker: "test"},
-			InitialTokens:     initialTokens,
-			MinSelfDelegation: math.OneInt(),
-		})
-		s.Require().NoError(err)
+	err := app.ExecuteAddValidator(ctx, s.valAddr, &AddValidatorOptions{
+		PubKey:            s.valPubKey,
+		Description:       stakingtypes.Description{Moniker: "test"},
+		InitialTokens:     initialTokens,
+		MinSelfDelegation: math.OneInt(),
+	})
+	s.Require().NoError(err)
 
-		validator, err := app.StakingKeeper.GetValidator(ctx, s.valAddr)
-		s.Require().NoError(err)
+	validator, err := app.StakingKeeper.GetValidator(ctx, s.valAddr)
+	s.Require().NoError(err)
 
-		// 1. Validator tokens must equal RequiredValidatorBalance.
-		s.Require().Equal(math.NewInt(RequiredValidatorBalance), validator.Tokens)
+	// 1. Validator tokens must equal InitialTokens.
+	s.Require().Equal(initialTokens, validator.Tokens)
 
-		// 2. DelegatorShares must match Tokens (no rounding drift).
-		s.Require().Equal(math.LegacyNewDecFromInt(validator.Tokens), validator.DelegatorShares)
+	// 2. DelegatorShares must match Tokens (no rounding drift).
+	s.Require().Equal(math.LegacyNewDecFromInt(validator.Tokens), validator.DelegatorShares)
 
-		// 3. A self-delegation record must exist with matching shares.
-		delegatorAddr := sdk.AccAddress(s.valAddr)
-		delegation, err := app.StakingKeeper.GetDelegation(ctx, delegatorAddr, s.valAddr)
-		s.Require().NoError(err)
-		s.Require().Equal(validator.DelegatorShares, delegation.Shares)
+	// 3. A self-delegation record must exist with matching shares.
+	delegatorAddr := sdk.AccAddress(s.valAddr)
+	delegation, err := app.StakingKeeper.GetDelegation(ctx, delegatorAddr, s.valAddr)
+	s.Require().NoError(err)
+	s.Require().Equal(validator.DelegatorShares, delegation.Shares)
 
-		// 4. Bonded pool must hold exactly the validator's tokens — no phantom balances.
-		bondedAfter := app.BankKeeper.GetBalance(ctx, bondedPoolAddr, sdk.DefaultBondDenom)
-		bondedDeposited := bondedAfter.Amount.Sub(bondedBefore.Amount)
-		s.Require().Equal(validator.Tokens, bondedDeposited)
-	}
+	// 4. Bonded pool must hold exactly the validator's tokens — no phantom balances.
+	bondedAfter := app.BankKeeper.GetBalance(ctx, bondedPoolAddr, sdk.DefaultBondDenom)
+	bondedDeposited := bondedAfter.Amount.Sub(bondedBefore.Amount)
+	s.Require().Equal(validator.Tokens, bondedDeposited)
 }
 
 func (s *AddValidatorTestSuite) TestExecuteAddValidator_InvalidInitialTokens() {
@@ -194,24 +191,15 @@ func (s *AddValidatorTestSuite) TestExecuteAddValidator_InvalidInitialTokens() {
 
 	for _, badTokens := range []math.Int{
 		math.ZeroInt(),
-		math.NewInt(500_000),
-		math.NewInt(RequiredValidatorBalance * 2),
+		math.NewInt(-1),
 	} {
 		err := app.ExecuteAddValidator(ctx, s.valAddr, &AddValidatorOptions{
 			PubKey:            s.valPubKey,
 			InitialTokens:     badTokens,
 			MinSelfDelegation: math.OneInt(),
 		})
-		s.Require().ErrorContains(err, "initial_tokens must equal RequiredValidatorBalance")
+		s.Require().ErrorContains(err, "initial_tokens must be a positive amount")
 	}
-}
-
-func (s *AddValidatorTestSuite) TestEnsureValidatorBalance() {
-	v, err := stakingtypes.NewValidator(s.valAddr.String(), s.valPubKey, stakingtypes.Description{})
-	s.Require().NoError(err)
-	v.Status = stakingtypes.Bonded
-	v.Tokens = math.NewInt(RequiredValidatorBalance)
-	s.Require().NoError(ensureValidatorBalance(v))
 }
 
 func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_NoOpWhenSufficient() {
@@ -221,7 +209,8 @@ func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_NoOpWhenSufficient() {
 	s.Require().NoError(err)
 	beforeCount := len(valsBefore)
 
-	params := s.buildAddValidatorParams(math.OneInt(), sdk.DefaultBondDenom)
+	initialTokens := math.NewInt(1_000_000)
+	params := s.buildAddValidatorParams(math.OneInt(), sdk.DefaultBondDenom, initialTokens)
 	config := BlockHooksConfig{
 		Hooks: []BlockHook{
 			{
@@ -244,5 +233,5 @@ func (s *AddValidatorTestSuite) TestAddValidatorBlockHook_NoOpWhenSufficient() {
 
 	validator, err := app.StakingKeeper.GetValidator(ctx, s.valAddr)
 	s.Require().NoError(err)
-	s.Require().Equal(math.NewInt(RequiredValidatorBalance), validator.Tokens)
+	s.Require().Equal(initialTokens, validator.Tokens)
 }

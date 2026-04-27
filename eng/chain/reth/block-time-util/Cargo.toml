@@ -1,0 +1,13 @@
+[package]
+name = "nexus-block-time-util"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+alloy-provider = { workspace = true, features = ["ws"] }
+tokio = { workspace = true, features = ["time"] }
+tokio-stream = "0.1"
+color-eyre = "0.6"
+owo-colors = { version = "4", features = ["supports-colors"] }
+
+clap = { version = "4", features = ["derive", "env"] }

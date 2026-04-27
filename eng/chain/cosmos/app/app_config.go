@@ -71,6 +71,8 @@ import (
 
 	_ "nexus/x/evm/module"
 	evmmoduletypes "nexus/x/evm/types"
+	_ "nexus/x/globalfee/module"
+	globalfeetypes "nexus/x/globalfee/types"
 )
 
 var (
@@ -179,6 +181,7 @@ var (
 						icatypes.ModuleName,
 						// chain modules
 						evmmoduletypes.ModuleName,
+						globalfeetypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -228,8 +231,10 @@ var (
 				Config: appconfig.WrapAny(&authzmodulev1.Module{}),
 			},
 			{
-				Name:   upgradetypes.ModuleName,
-				Config: appconfig.WrapAny(&upgrademodulev1.Module{}),
+				Name: upgradetypes.ModuleName,
+				Config: appconfig.WrapAny(&upgrademodulev1.Module{
+					Authority: govtypes.ModuleName,
+				}),
 			},
 			{
 				Name:   distrtypes.ModuleName,
@@ -281,6 +286,10 @@ var (
 			{
 				Name:   evmmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&evmmoduletypes.Module{}),
+			},
+			{
+				Name:   globalfeetypes.ModuleName,
+				Config: appconfig.WrapAny(&globalfeetypes.Module{}),
 			},
 			// this line is used by starport scaffolding # stargate/app/moduleConfig
 		},

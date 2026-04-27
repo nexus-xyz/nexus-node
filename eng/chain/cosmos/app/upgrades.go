@@ -13,34 +13,11 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-const (
-	// All validators must have exactly this many tokens when active.
-	RequiredValidatorBalance = 1000000
-)
-
-// ensureValidatorBalance checks that a bonded validator has exactly
-// RequiredValidatorBalance tokens. Returns an error if the invariant is violated,
-// preventing the chain from starting with misconfigured validators that would cause
-// bonded pool accounting mismatches and eventual consensus failure on removal.
-func ensureValidatorBalance(validator stakingtypes.Validator) error {
-	if validator.Status != stakingtypes.Bonded {
-		return nil
-	}
-	required := math.NewInt(RequiredValidatorBalance)
-	if !validator.Tokens.Equal(required) {
-		return fmt.Errorf(
-			"genesis validator %s has %s bonded tokens, must be exactly %d",
-			validator.OperatorAddress, validator.Tokens.String(), RequiredValidatorBalance,
-		)
-	}
-	return nil
-}
-
 // AddValidatorOptions controls how ExecuteAddValidator initializes validator state when missing.
 type AddValidatorOptions struct {
 	PubKey            cryptotypes.PubKey
 	Description       stakingtypes.Description
-	InitialTokens     math.Int // Starting delegation amount; setValidatorBalance tops up to RequiredValidatorBalance.
+	InitialTokens     math.Int // Amount to mint and self-delegate when creating this validator.
 	MinSelfDelegation math.Int
 }
 
@@ -50,16 +27,18 @@ type RemoveValidatorOptions struct {
 	TokenRecipient sdk.AccAddress // Where to send tokens if not burning (ignored if BurnTokens=true)
 }
 
-// Set validator balance to required amount.
-func (app *App) setValidatorBalance(ctx sdk.Context, valAddr sdk.ValAddress, validator stakingtypes.Validator) error {
+// setValidatorBalance mints and delegates tokens up to target for the given validator.
+func (app *App) setValidatorBalance(
+	ctx sdk.Context, valAddr sdk.ValAddress, validator stakingtypes.Validator, target math.Int,
+) error {
 	tokens := validator.Tokens
 	if tokens.IsNil() {
 		tokens = math.ZeroInt()
 	}
 
-	if tokens.LT(math.NewInt(RequiredValidatorBalance)) {
+	if tokens.LT(target) {
 		bondDenom := sdk.DefaultBondDenom
-		tokensToRestore := math.NewInt(RequiredValidatorBalance).Sub(tokens)
+		tokensToRestore := target.Sub(tokens)
 		additionalTokens := sdk.NewCoin(bondDenom, tokensToRestore)
 
 		// Mint the additional tokens to the staking bonded pool (which has Minter permissions)
@@ -96,8 +75,12 @@ func (app *App) setValidatorBalance(ctx sdk.Context, valAddr sdk.ValAddress, val
 	return nil
 }
 
-// ExecuteUnjailing performs the unjailing process for a validator, recovering slashed tokens
-func (app *App) ExecuteUnjailing(ctx sdk.Context, valAddr sdk.ValAddress) error {
+// ExecuteUnjailing unjails a validator. If targetTokens is non-nil, it mints
+// and self-delegates up to that amount after unjailing so the validator re-enters
+// the active set even if a liveness slash reduced its power below the threshold.
+// targetTokens is a floor, not an addition: if the validator already holds at
+// least that many tokens, no minting occurs.
+func (app *App) ExecuteUnjailing(ctx sdk.Context, valAddr sdk.ValAddress, targetTokens *math.Int) error {
 	ctx.Logger().Info("[UNJAIL] Starting unjailing process", "validator", valAddr.String())
 
 	// Get the validator to check current staked tokens
@@ -111,17 +94,11 @@ func (app *App) ExecuteUnjailing(ctx sdk.Context, valAddr sdk.ValAddress) error 
 		"tokens", validator.Tokens.String(),
 		"status", validator.Status.String())
 
-	// Calculate the expected tokens (minimum required balance)
-	requiredTokens := math.NewInt(RequiredValidatorBalance)
-	currentTokens := validator.Tokens
-
-	ctx.Logger().Info("[UNJAIL] Token comparison",
-		"required", requiredTokens.String(),
-		"current", currentTokens.String(),
-		"needsRestore", currentTokens.LT(requiredTokens))
-
-	if err := app.setValidatorBalance(ctx, valAddr, validator); err != nil {
-		return fmt.Errorf("failed to ensure validator balance: %w", err)
+	if targetTokens != nil {
+		if err := app.setValidatorBalance(ctx, valAddr, validator, *targetTokens); err != nil {
+			return fmt.Errorf("failed to restore validator balance: %w", err)
+		}
+		ctx.Logger().Info("[UNJAIL] Restored validator tokens", "target", targetTokens.String())
 	}
 
 	// Get the consensus address for the validator
@@ -160,6 +137,7 @@ func (app *App) ExecuteUnjailing(ctx sdk.Context, valAddr sdk.ValAddress) error 
 	}
 
 	ctx.Logger().Info("[UNJAIL] Validator unjailed successfully")
+
 	return nil
 }
 
@@ -169,18 +147,13 @@ func (app *App) ExecuteUnjailing(ctx sdk.Context, valAddr sdk.ValAddress) error 
 func (app *App) ExecuteAddValidator(ctx sdk.Context, valAddr sdk.ValAddress, opts *AddValidatorOptions) error {
 	ctx.Logger().Info("[ADDVAL] Starting add-validator flow", "validator", valAddr.String())
 
-	if opts != nil && !opts.InitialTokens.IsNil() && !opts.InitialTokens.Equal(math.NewInt(RequiredValidatorBalance)) {
-		return fmt.Errorf(
-			"initial_tokens must equal RequiredValidatorBalance (%d), got %s",
-			RequiredValidatorBalance,
-			opts.InitialTokens.String(),
-		)
-	}
-
 	validator, err := app.StakingKeeper.GetValidator(ctx, valAddr)
 	if err != nil {
 		if opts == nil || opts.PubKey == nil {
 			return fmt.Errorf("validator not found: %w (provide AddValidatorOptions with PubKey to create)", err)
+		}
+		if opts.InitialTokens.IsNil() || !opts.InitialTokens.IsPositive() {
+			return fmt.Errorf("initial_tokens must be a positive amount")
 		}
 
 		delegatorAddr := sdk.AccAddress(valAddr.Bytes())
@@ -196,13 +169,10 @@ func (app *App) ExecuteAddValidator(ctx sdk.Context, valAddr sdk.ValAddress, opt
 			return fmt.Errorf("failed to build validator: %w", err)
 		}
 
-		// Always start with zero tokens and let setValidatorBalance fund the full
-		// RequiredValidatorBalance via real minting and delegation. Setting Tokens
-		// directly (e.g. opts.InitialTokens) created phantom tokens: the validator
-		// record claimed a balance that was never deposited into the bonded pool,
-		// which caused a consensus failure panic on removal with burn_tokens.
-		// InitialTokens is accepted for config compatibility; setValidatorBalance
-		// enforces the final balance is exactly RequiredValidatorBalance.
+		// Always start with zero tokens and let setValidatorBalance mint and delegate
+		// InitialTokens via the real bonded pool. Setting Tokens directly via SetValidator
+		// creates phantom tokens: the validator record claims a balance that was never
+		// deposited into the bonded pool, causing a panic on removal with burn_tokens.
 		validator.Status = stakingtypes.Bonded
 		validator.Tokens = math.ZeroInt()
 		validator.DelegatorShares = math.LegacyZeroDec()
@@ -285,7 +255,7 @@ func (app *App) ExecuteAddValidator(ctx sdk.Context, valAddr sdk.ValAddress, opt
 			}
 		}
 
-		if err := app.setValidatorBalance(ctx, valAddr, validator); err != nil {
+		if err := app.setValidatorBalance(ctx, valAddr, validator, opts.InitialTokens); err != nil {
 			return fmt.Errorf("failed to ensure validator balance: %w", err)
 		}
 
@@ -399,8 +369,7 @@ func (app *App) handleValidatorTokens(
 	}
 
 	// Cap to the actual pool balance to handle state mismatches where validator.Tokens
-	// exceeds what is held in the pool (e.g. phantom tokens written via SetValidator
-	// without a corresponding bank deposit when initial_tokens >= RequiredValidatorBalance).
+	// exceeds what is held in the pool.
 	poolAddr := app.AuthKeeper.GetModuleAddress(poolName)
 	poolBalance := app.BankKeeper.GetBalance(ctx, poolAddr, bondDenom)
 	amount := validator.Tokens

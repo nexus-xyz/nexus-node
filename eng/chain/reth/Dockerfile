@@ -1,5 +1,3 @@
-# syntax=docker.io/docker/dockerfile:1.7-labs
-
 FROM lukemathwalker/cargo-chef:latest-rust-1.91.1 AS chef
 WORKDIR /app
 
@@ -33,10 +31,23 @@ RUN if [ "$BUILD_PROFILE" = "dev" ]; then \
         cp /app/target/release/nexus-evm /app/nexus-evm; \
     fi
 
-FROM debian
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gosu \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system nexus && useradd --system --gid nexus --home-dir /app --create-home nexus
+
 WORKDIR /app
 
 COPY --from=builder /app/nexus-evm /usr/local/bin/nexus-evm
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 30303 30303/udp 9001 8545 8546
-ENTRYPOINT ["/usr/local/bin/nexus-evm"]
+
+ENTRYPOINT ["docker-entrypoint.sh"]

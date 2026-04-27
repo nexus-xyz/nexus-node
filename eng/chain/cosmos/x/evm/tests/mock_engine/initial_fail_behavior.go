@@ -77,3 +77,10 @@ func (b *InitialFailBehavior) HandleGetPayloadV4(
 
 	return b.DefaultEngineBehavior.HandleGetPayloadV4(state, payloadID)
 }
+
+func (b *InitialFailBehavior) HandleGetPayloadV5(
+	state *EngineState,
+	payloadID engine.PayloadID,
+) (engine.ExecutionPayloadEnvelope, *JsonRPCError) {
+	return b.HandleGetPayloadV4(state, payloadID)
+}
