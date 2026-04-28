@@ -1,4 +1,4 @@
-FROM golang:1.24.11-alpine3.22 AS build-env
+FROM golang:1.25.8-alpine3.22 AS build-env
 
 RUN apk add --no-cache \
     ca-certificates \
