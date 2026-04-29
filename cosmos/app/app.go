@@ -216,8 +216,6 @@ func New(
 
 	// DISABLED optimistic execution: EVM client state is not correctly synced with this feature,
 	// and causes the chain to panic during slow block production.
-	// We will likely not enable this feature until the above if fixed, or because we moved onto a
-	// different consensus engine.
 	// baseAppOptions = append(baseAppOptions, baseapp.SetOptimisticExecution())
 
 	baseAppOptions = append(baseAppOptions, func(bapp *baseapp.BaseApp) {
@@ -288,8 +286,8 @@ func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 }
 
 // PreBlocker runs before each block's PreBlock stage. It emits structured logs
-// for upgrade-related events (ENG-1445, ENG-1446), then delegates to the
-// standard module PreBlock chain.
+// for upgrade-related events, then delegates to the standard module PreBlock
+// chain.
 //
 // Note on timing: the upgrade_scheduled notification has a one-block delay
 // relative to governance passing the plan. A proposal stored during block N's

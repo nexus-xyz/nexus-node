@@ -335,7 +335,7 @@ func TestAppSimulationAfterImport(t *testing.T) {
 	}
 
 	if stopEarly {
-		fmt.Println("can't export or import a zero-validator genesis, exiting test...")
+		fmt.Printf("can't export or import a zero-validator genesis, exiting test...\n")
 		return
 	}
 

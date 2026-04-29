@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"nexus/x/evm/tests/testutil"
+	"nexus/x/evm/types"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -133,22 +133,22 @@ func FuzzTransactionSizeCheck(f *testing.F) {
 		}
 
 		// This should never panic regardless of input
-		isOversized := len(txData) > testutil.MaxTxSize
+		isOversized := len(txData) > types.MaxTxSize
 
 		// Test error message generation doesn't panic
 		if isOversized {
 			errorMsg := fmt.Sprintf("transaction too large: %d bytes exceeds maximum of %d bytes",
-				len(txData), testutil.MaxTxSize)
+				len(txData), types.MaxTxSize)
 			if !strings.Contains(errorMsg, "transaction too large") {
 				t.Errorf("Error message format incorrect: %s", errorMsg)
 			}
 		}
 
 		// Simulate what happens in the actual code paths
-		if len(txData) > testutil.MaxTxSize {
+		if len(txData) > types.MaxTxSize {
 			// This is what would happen in PrepareProposal/ProcessProposal
 			// Just verify the logic is consistent
-			if len(txData) <= testutil.MaxTxSize {
+			if len(txData) <= types.MaxTxSize {
 				t.Errorf("Logic error: transaction of size %d should be rejected", len(txData))
 			}
 		}

@@ -3,6 +3,7 @@ package ante
 import (
 	"fmt"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"nexus/x/globalfee/keeper"
@@ -37,7 +38,10 @@ func (d MinGasPriceDecorator) AnteHandle(
 	}
 
 	gas := feeTx.GetGas()
-	required := minPrice.Amount.MulInt64(int64(gas)).Ceil().TruncateInt()
+	// Use MulInt with NewIntFromUint64 to preserve the full uint64 range:
+	// int64(gas) wraps to negative for gas >= 2^63 and produces a negative
+	// required fee, which would let any tx bypass the minimum gas price.
+	required := minPrice.Amount.MulInt(math.NewIntFromUint64(gas)).Ceil().TruncateInt()
 	paid := feeTx.GetFee().AmountOf(minPrice.Denom)
 
 	if paid.LT(required) {

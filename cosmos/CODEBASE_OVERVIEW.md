@@ -1,17 +1,10 @@
 # Background
 
-- [Nexus L1 Architecture](https://www.notion.so/nexuslabshq/Custom-L1-Architecture-23467845c2f480079b4ef30975974d3c?source=copy_link)
-  explains the following:
-  - Differences between Nexus L1 design and Story design
-  - Future roadmap
-  - Background on EngineAPI, ABCI++, Cosmos SDK, EL vs CL
-  - Deployment + Infrastructure
-
-- The goal of this document is to map the concepts from the above document to the actual code implementations
+This document maps the concepts in [`README.md`](./README.md) — the CL/EL
+split, ABCI++ ↔ Engine API translation, and Cosmos SDK setup — to concrete
+files in this codebase.
 
 # Most important files
-
-- A majority of this codebase was initially generated from running the following command: `ignite scaffold chain nexus`
 
 - The most important files are the following:
   - `lib/engine.go` - EngineAPI

@@ -1,6 +1,7 @@
 package ante_test
 
 import (
+	stdmath "math"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -98,5 +99,31 @@ func TestMinGasPriceDecorator(t *testing.T) {
 		tx := mockFeeTx{gas: 100, fees: sdk.Coins{}}
 		_, err := dec.AnteHandle(ctx, tx, true, noop)
 		require.NoError(t, err)
+	})
+
+	// Regression: int64(gas) used to wrap to negative for gas >= 2^63, producing
+	// a negative required fee that any non-negative paid amount trivially
+	// "covers" — bypassing the on-chain minimum gas price.
+	t.Run("rejects zero fee at gas = MaxInt64+1 (int64 overflow boundary)", func(t *testing.T) {
+		tx := mockFeeTx{gas: uint64(stdmath.MaxInt64) + 1, fees: sdk.Coins{}}
+		_, err := dec.AnteHandle(ctx, tx, false, noop)
+		require.ErrorContains(t, err, "insufficient fees")
+	})
+
+	t.Run("rejects zero fee at gas = MaxUint64", func(t *testing.T) {
+		tx := mockFeeTx{gas: stdmath.MaxUint64, fees: sdk.Coins{}}
+		_, err := dec.AnteHandle(ctx, tx, false, noop)
+		require.ErrorContains(t, err, "insufficient fees")
+	})
+
+	t.Run("rejects trivially insufficient fee at gas = MaxUint64", func(t *testing.T) {
+		// price=0.25 × MaxUint64 ≈ 4.6e18; fee=100 is trivially insufficient.
+		// The pre-fix code would compute a negative required and accept this.
+		tx := mockFeeTx{
+			gas:  stdmath.MaxUint64,
+			fees: sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 100)),
+		}
+		_, err := dec.AnteHandle(ctx, tx, false, noop)
+		require.ErrorContains(t, err, "insufficient fees")
 	})
 }

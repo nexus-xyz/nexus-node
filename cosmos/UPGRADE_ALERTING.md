@@ -17,10 +17,6 @@ by `UpgradeKeeper.ScheduleUpgrade`. Validators and stakeholders must be paged
 immediately — they need to prepare the new binary **before** the halt height
 is reached.
 
-Fulfils criterion *"communicated to validators and internal stakeholders
-immediately"* from [ENG-1225](https://linear.app/nexus/issue/ENG-1225).
-Implemented in [ENG-1446](https://linear.app/nexus/issue/ENG-1446).
-
 ### Log shape
 
 Emitted at **INFO** level. The JSON payload is the logger message:
@@ -89,8 +85,6 @@ Emitted in the block where x/upgrade's `PreBlocker` is about to panic with
 Fires exactly once per halt: the chain stops producing blocks immediately
 after. If the current binary **has** a handler for the plan, this is a
 routine upgrade (not a halt) and no log is emitted.
-
-Implemented in [ENG-1445](https://linear.app/nexus/issue/ENG-1445).
 
 ### Log shape
 

@@ -5,8 +5,6 @@ use reth_chainspec::{ChainSpec, ChainSpecBuilder, EthereumHardfork, ForkConditio
 use reth_tracing::tracing;
 use serde::Deserialize;
 
-use crate::forks::Nexus;
-
 /// Configuration structure for Nexus Reth
 #[derive(Debug, Clone, Deserialize)]
 pub struct NexusConfig {
@@ -24,10 +22,6 @@ pub struct ForkTimings {
     pub prague_time: Option<u64>,
     #[serde(default)]
     pub osaka_time: Option<u64>,
-
-    // Nexus Forks
-    #[serde(default)]
-    pub v0_time: Option<u64>,
 }
 
 impl ForkTimings {
@@ -65,13 +59,6 @@ impl NexusConfig {
                 ForkCondition::Timestamp(osaka_time),
             );
             tracing::debug!("Applying Osaka fork at timestamp {}", osaka_time);
-        }
-
-        if let Some(v0_time) = self.fork_timings.v0_time {
-            builder = builder
-                .without_fork(Nexus::V0)
-                .with_fork(Nexus::V0, ForkCondition::Timestamp(v0_time));
-            tracing::debug!("Applying Nexus V0 fork at timestamp {}", v0_time);
         }
 
         Ok(builder.build())

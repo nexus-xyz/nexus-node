@@ -20,7 +20,6 @@ import (
 	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 
 	evmkeeper "nexus/x/evm/keeper"
-	"nexus/x/evm/tests/testutil"
 	"nexus/x/evm/types"
 )
 
@@ -167,9 +166,9 @@ func makeProcessProposalHandler(
 		cosmosTxCount := 0
 		for i, rawTx := range req.Txs {
 			// Limit to 20MB to prevent validators from running out of storage or memory.
-			if len(rawTx) > testutil.MaxTxSize {
+			if len(rawTx) > types.MaxTxSize {
 				return rejectProposal(ctx, fmt.Errorf("transaction too large: %d bytes exceeds maximum of %d bytes",
-					len(rawTx), testutil.MaxTxSize))
+					len(rawTx), types.MaxTxSize))
 			}
 
 			parsed, err := parseTx(txConfig, rawTx)
@@ -213,7 +212,7 @@ func makeProcessProposalHandler(
 }
 
 func rejectProposal(ctx sdk.Context, err error) (*abci.ResponseProcessProposal, error) {
-	fmt.Println("Rejecting Proposal", err)
+	ctx.Logger().Error("Rejecting Proposal", "error", err)
 	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
 }
 

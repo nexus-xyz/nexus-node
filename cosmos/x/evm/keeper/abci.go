@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	etypes "github.com/ethereum/go-ethereum/core/types"
 
-	"nexus/x/evm/tests/testutil"
 	"nexus/x/evm/types"
 )
 
@@ -214,9 +213,9 @@ func (k *Keeper) PrepareProposal(ctx sdk.Context, req *abci.RequestPreparePropos
 
 	// Limit to 20MB to prevent validators from running out of storage
 
-	if len(tx) > testutil.MaxTxSize {
+	if len(tx) > types.MaxTxSize {
 		return nil, fmt.Errorf("transaction too large: %d bytes exceeds maximum of %d bytes",
-			len(tx), testutil.MaxTxSize)
+			len(tx), types.MaxTxSize)
 	}
 
 	return &abci.ResponsePrepareProposal{

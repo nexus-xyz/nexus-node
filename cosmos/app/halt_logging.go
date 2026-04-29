@@ -15,7 +15,7 @@ import (
 const haltEventName = "halt_triggered"
 
 // haltLog is the JSON payload emitted before the x/upgrade PreBlocker panics
-// with UPGRADE NEEDED at a coordinated halt height (ENG-1225 / ENG-1445).
+// with UPGRADE NEEDED at a coordinated halt height.
 // The shape is a stable contract consumed by ops log-scrape alerting.
 type haltLog struct {
 	Event     string `json:"event"`

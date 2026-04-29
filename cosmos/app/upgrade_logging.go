@@ -15,8 +15,8 @@ import (
 const upgradeEventName = "upgrade_scheduled"
 
 // upgradeLog is the JSON payload emitted when x/upgrade stores a new
-// governance-approved plan (ENG-1225 / ENG-1446). The shape is a stable
-// contract consumed by ops log-scrape alerting.
+// governance-approved plan. The shape is a stable contract consumed by ops
+// log-scrape alerting.
 type upgradeLog struct {
 	Event  string `json:"event"`
 	Name   string `json:"name"`
