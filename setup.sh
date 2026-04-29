@@ -145,7 +145,7 @@ if confirm "Build nexus-evm now?"; then
   if [ -x "${RETH_BIN}" ]; then
     warn "Existing binary found at ${RETH_BIN}; cargo will rebuild only what changed."
   fi
-  ( cd "${RETH_DIR}" && cargo build --release --locked --bin nexus-evm )
+  ( cd "${RETH_DIR}" && cargo build --release --bin nexus-evm )
   [ -x "${RETH_BIN}" ] || fail "Build finished but ${RETH_BIN} is missing."
   ok "Built ${RETH_BIN}"
 else
@@ -162,15 +162,17 @@ info "Installs to: ${GOBIN}/nexusd"
 
 if confirm "Build nexusd now?"; then
   ( cd "${COSMOS_DIR}" && make install )
-  if ! command -v nexusd >/dev/null 2>&1; then
-    if [ -x "${GOBIN}/nexusd" ]; then
-      warn "${GOBIN} is not on your PATH. Add it before starting the node:"
-      info "  export PATH=\"${GOBIN}:\$PATH\""
-    else
-      fail "make install finished but nexusd is not at ${GOBIN}/nexusd."
-    fi
+  # Don't invoke nexusd here — every subcommand instantiates the app, which
+  # tries to read jwt.hex on construction and panics until step 6 runs.
+  # Verify by checking the binary exists instead.
+  if [ ! -x "${GOBIN}/nexusd" ]; then
+    fail "make install finished but nexusd is not at ${GOBIN}/nexusd."
   fi
-  ok "Built nexusd ($(${GOBIN}/nexusd version 2>&1 | head -n1))"
+  if ! command -v nexusd >/dev/null 2>&1; then
+    warn "${GOBIN} is not on your PATH. Add it before starting the node:"
+    info "  export PATH=\"${GOBIN}:\$PATH\""
+  fi
+  ok "Built ${GOBIN}/nexusd"
 else
   command -v nexusd >/dev/null 2>&1 || warn "Skipped — nexusd not found on PATH. Step 7 will fail until you build it."
 fi
@@ -252,6 +254,10 @@ if confirm "Run 'nexusd init' and apply chain configs?"; then
       fail "nexusd not on PATH and not at ${GOBIN}/nexusd. Build it first (step 3)."
     fi
   fi
+
+  # Every nexusd subcommand instantiates the app, which loads the JWT secret on
+  # construction. Point it at our generated secret so 'init' doesn't panic.
+  export EVM_ENGINE_JWT_SECRET_PATH="${JWT_FILE}"
 
   if [ -f "${COSMOS_HOME}/config/genesis.json" ]; then
     warn "${COSMOS_HOME} already initialised — skipping 'nexusd init'."
