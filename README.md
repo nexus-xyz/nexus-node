@@ -5,14 +5,11 @@ This repository contains the source code for the two binaries that make up a Nex
 - `reth/` — the EVM execution client (`nexus-evm`)
 - `cosmos/` — the consensus client (`nexusd`)
 
-This guide walks through building and running a **fullnode** directly from source, without
-Docker. It is the native equivalent of the container-based setup documented in the
-[partner program](https://github.com/nexus-xyz/partner-program).
+This guide walks through building and running a **fullnode** directly from source.
 
 > Validator and archivenode setups follow the same shape but require additional steps
-> (key generation, pruning configuration). Refer to the partner program README for those
-> variants — the binary invocations below carry over directly; only the flags and node-type
-> environment variables differ.
+> (key generation, pruning configuration). The binary invocations below carry over
+> directly; only the flags and node-type environment variables differ.
 
 ## Architecture
 
@@ -318,20 +315,10 @@ GCS. To update:
 The JWT secret, the `reth-data` directory, and the CometBFT data directory persist across
 restarts and upgrades — do not delete them.
 
-## Verifying published images
+## Published images
 
-If you would prefer to run the official container images instead of building from source,
-they are published to Docker Hub as `nexusxyz/reth` and `nexusxyz/cosmos`, and signed with
-Cosign via GitHub Actions OIDC:
-
-```bash
-cosign verify \
-  --certificate-identity-regexp="https://github.com/nexus-xyz/nexus/.github/workflows/eng-chain-cosmos-build.yml@refs/.*" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  nexusxyz/cosmos:<tag> | jq .
-```
-
-The container-based path is documented end-to-end in the partner program repository.
+Official container images are published to Docker Hub as `nexusxyz/reth` and
+`nexusxyz/cosmos`. See the release notes on each tag for image-signing details.
 
 ## Source layout
 
