@@ -126,12 +126,11 @@ require_cmd gcloud  "download chain configs from gs://nexus-l1"
 require_cmd sed     "edit config.toml"
 require_cmd curl    "verify the running node (optional but recommended)"
 
-# Confirm gcloud is authenticated for the chain config bucket
-if ! gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
-  warn "gcloud has no active account — run: gcloud auth login"
-  confirm "Continue anyway? (downloads will fail without auth)" || fail "Aborted."
-else
+# gs://nexus-l1 is publicly readable — gcloud auth is optional but supported.
+if gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
   ok "gcloud authenticated as $(gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -n1)"
+else
+  info "gcloud has no active account; chain configs are public, so this is fine."
 fi
 
 # ---------------------------------------------------------------------------
