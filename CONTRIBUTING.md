@@ -1,10 +1,27 @@
-# Contributing to Nexus
+# Contributing to Nexus Node
 
-Thank you for your interest in Nexus!
+Nexus Node is developed in our internal monorepo and mirrored here. Pull
+requests opened directly against this repository are not merged — fixes flow
+through the upstream tree and arrive in this repo via sync commits.
 
-Currently, this project is **not accepting external contributions**. We are focusing on internal development and are not reviewing pull requests or issue submissions at this time.
+## Reporting bugs and asking questions
 
-## Other Ways to Support
-If you like the project, you can still support us by:
-- **Starring the project** on GitHub.
-- **Following along** with updates.
+Bug reports and discussion are welcome — please open an issue if you hit
+something. When filing an issue, include:
+
+- The version (commit SHA or release tag) you are running.
+- A clear reproduction: commands, configs, and any relevant log output.
+- What you expected to happen, and what happened instead.
+
+Fixes proposed in issues may be picked up into the upstream tree and synced
+back.
+
+## Reporting security vulnerabilities
+
+Do not file public issues for security problems. See
+[`SECURITY.md`](./SECURITY.md) for the private disclosure process.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of
+Conduct](./CODE_OF_CONDUCT.md). By participating, you agree to abide by it.
