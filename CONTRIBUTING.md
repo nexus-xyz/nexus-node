@@ -20,8 +20,3 @@ back.
 
 Do not file public issues for security problems. See
 [`SECURITY.md`](./SECURITY.md) for the private disclosure process.
-
-## Code of Conduct
-
-This project follows the [Contributor Covenant Code of
-Conduct](./CODE_OF_CONDUCT.md). By participating, you agree to abide by it.
