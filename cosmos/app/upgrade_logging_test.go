@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +87,7 @@ func TestUpgradeNotifier_LogsNewlyScheduledPlan(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 
 	got, ok := extractUpgradeLog(t, buf)
@@ -106,7 +108,7 @@ func TestUpgradeNotifier_DoesNotRelogSamePlan(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 	_, ok := extractUpgradeLog(t, buf)
 	require.True(t, ok, "expected first emission")
@@ -122,7 +124,7 @@ func TestUpgradeNotifier_DoesNotRelogSamePlan(t *testing.T) {
 func TestUpgradeNotifier_NoLogWhenNoPlanStored(t *testing.T) {
 	app, ctx, buf := setupUpgradeLoggingApp(t)
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 
 	_, ok := extractUpgradeLog(t, buf)
@@ -139,7 +141,7 @@ func TestUpgradeNotifier_LogsAgainAfterCancelAndReschedule(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 	_, ok := extractUpgradeLog(t, buf)
 	require.True(t, ok, "expected first emission")
@@ -176,7 +178,7 @@ func TestUpgradeNotifier_RelogsWhenInfoChanges(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 	_, ok := extractUpgradeLog(t, buf)
 	require.True(t, ok, "expected first emission")
@@ -211,11 +213,53 @@ func TestUpgradeNotifier_SkipsAtHaltHeight(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	n := newUpgradeNotifier(app.UpgradeKeeper)
+	n := newUpgradeNotifier(app.UpgradeKeeper, nil)
 	n.MaybeLogNewPlan(ctx)
 
 	_, ok := extractUpgradeLog(t, buf)
 	require.False(t, ok, "expected no upgrade_scheduled log at halt height; got:\n%s", buf.String())
+}
+
+func TestUpgradeNotifier_FiresWebhookOnNewPlan(t *testing.T) {
+	app, ctx, _ := setupUpgradeLoggingApp(t)
+
+	plan := upgradetypes.Plan{
+		Name:   "v2-upgrade",
+		Height: 999,
+		Info:   "https://releases.example.com/v2.0.0",
+	}
+	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
+
+	received := make(chan slackPayload, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p slackPayload
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		received <- p
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	webhook := newWebhookNotifier(srv.URL, log.NewNopLogger())
+	webhook.initialBackoff = time.Millisecond
+	n := newUpgradeNotifier(app.UpgradeKeeper, webhook)
+	n.MaybeLogNewPlan(ctx)
+
+	// Dispatch is async on purpose (see upgrade_logging.go). Bounded wait.
+	select {
+	case got := <-received:
+		require.Contains(t, got.Text, "v2-upgrade")
+		require.Contains(t, got.Text, "999")
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected webhook POST within 2s")
+	}
+
+	// Second observation of the same plan must not re-fire (dedup parity).
+	n.MaybeLogNewPlan(ctx)
+	select {
+	case extra := <-received:
+		t.Fatalf("unexpected second webhook call: %+v", extra)
+	case <-time.After(150 * time.Millisecond):
+	}
 }
 
 func TestUpgradeNotifier_NilSafe(t *testing.T) {

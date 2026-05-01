@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +89,7 @@ func TestLogHaltIfTriggered_EmitsOnHalt(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	logHaltIfTriggered(ctx, app.UpgradeKeeper)
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, nil)
 
 	got, ok := extractHaltLog(t, buf)
 	require.True(t, ok, "expected halt_triggered log line; got:\n%s", buf.String())
@@ -101,7 +103,7 @@ func TestLogHaltIfTriggered_EmitsOnHalt(t *testing.T) {
 func TestLogHaltIfTriggered_SkipsWhenNoPlan(t *testing.T) {
 	app, ctx, buf := setupHaltLoggingApp(t)
 
-	logHaltIfTriggered(ctx, app.UpgradeKeeper)
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, nil)
 
 	_, ok := extractHaltLog(t, buf)
 	require.False(t, ok, "expected no halt_triggered log without a scheduled plan; got:\n%s", buf.String())
@@ -117,7 +119,7 @@ func TestLogHaltIfTriggered_SkipsBeforeHaltHeight(t *testing.T) {
 	}
 	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
 
-	logHaltIfTriggered(ctx, app.UpgradeKeeper)
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, nil)
 
 	_, ok := extractHaltLog(t, buf)
 	require.False(t, ok, "expected no halt_triggered log before plan height; got:\n%s", buf.String())
@@ -139,8 +141,43 @@ func TestLogHaltIfTriggered_SkipsWhenHandlerRegistered(t *testing.T) {
 		},
 	)
 
-	logHaltIfTriggered(ctx, app.UpgradeKeeper)
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, nil)
 
 	_, ok := extractHaltLog(t, buf)
 	require.False(t, ok, "expected no halt_triggered log when handler is registered; got:\n%s", buf.String())
+}
+
+func TestLogHaltIfTriggered_FiresWebhook(t *testing.T) {
+	app, ctx, _ := setupHaltLoggingApp(t)
+
+	plan := upgradetypes.Plan{
+		Name:   "halt/webhook",
+		Height: ctx.HeaderInfo().Height,
+		Info:   "emergency halt",
+	}
+	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(ctx, plan))
+
+	received := make(chan slackPayload, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p slackPayload
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		received <- p
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	webhook := newWebhookNotifier(srv.URL, log.NewNopLogger())
+	webhook.initialBackoff = time.Millisecond
+
+	// halt_triggered path is synchronous — return from logHaltIfTriggered
+	// means the POST has already been delivered (or retries exhausted).
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, webhook)
+
+	select {
+	case got := <-received:
+		require.Contains(t, got.Text, "halt/webhook")
+		require.Contains(t, got.Text, "emergency halt")
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected synchronous webhook POST before logHaltIfTriggered returned")
+	}
 }

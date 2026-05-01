@@ -4,8 +4,8 @@ The Reth half of the Nexus chain. The `evm/` crate compiles to `nexus-evm`, the
 execution-layer node: it ingests payloads from a consensus-layer client over
 the Ethereum Engine API and executes them against an Ethereum-compatible state.
 
-This directory is one half of a CL/EL split. The CL (`nexusd`, in
-`eng/chain/cosmos`) owns consensus, governance, staking, IBC, and fee policy;
+This directory is one half of a CL/EL split. The CL (`nexusd`, in the `cosmos/`
+directory) owns consensus, governance, staking, IBC, and fee policy;
 `nexus-evm` owns transaction execution and state. They communicate over
 JWT-authenticated Engine API JSON-RPC.
 
@@ -50,9 +50,9 @@ halves negotiate the same Engine API tier per payload.
 
 ## Build & run
 
-Requires Rust 1.91.1 (matches the Dockerfile toolchain) and the system
-dependencies installed by the Docker build: `libclang-dev`, `pkg-config`, and
-`protobuf-compiler`.
+Requires Rust 1.94 (matches the Dockerfile toolchain and `rust-toolchain.toml`)
+and the system dependencies installed by the Docker build: `libclang-dev`,
+`pkg-config`, and `protobuf-compiler`.
 
 ```bash
 cargo build --release --bin nexus-evm        # builds the EL binary

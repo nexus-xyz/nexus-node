@@ -1,6 +1,7 @@
 [package]
 name = "nexus-evm"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
@@ -28,3 +29,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

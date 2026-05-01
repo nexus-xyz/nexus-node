@@ -41,7 +41,8 @@ type upgradeLog struct {
 // this is desired: validators coming back online should be reminded that an
 // upgrade is scheduled.
 type upgradeNotifier struct {
-	keeper *upgradekeeper.Keeper
+	keeper  *upgradekeeper.Keeper
+	webhook *webhookNotifier
 
 	mu           sync.Mutex
 	lastLoggedOK bool
@@ -50,8 +51,8 @@ type upgradeNotifier struct {
 	lastInfo     string
 }
 
-func newUpgradeNotifier(k *upgradekeeper.Keeper) *upgradeNotifier {
-	return &upgradeNotifier{keeper: k}
+func newUpgradeNotifier(k *upgradekeeper.Keeper, webhook *webhookNotifier) *upgradeNotifier {
+	return &upgradeNotifier{keeper: k, webhook: webhook}
 }
 
 // MaybeLogNewPlan reads the currently scheduled upgrade plan and emits a
@@ -110,6 +111,13 @@ func (n *upgradeNotifier) MaybeLogNewPlan(ctx sdk.Context) {
 		return
 	}
 	ctx.Logger().Info(string(encoded))
+
+	// Dispatch the webhook asynchronously: PreBlocker runs on the hot block
+	// path and must not be stalled by a slow or unreachable Slack endpoint.
+	// Retries/timeout are bounded inside the notifier.
+	if n.webhook != nil {
+		go n.webhook.Notify(upgradeEventName, formatUpgradeScheduledText(payload))
+	}
 
 	n.lastLoggedOK = true
 	n.lastName = plan.Name

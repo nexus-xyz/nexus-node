@@ -6,7 +6,7 @@ CLI to watch EVM block arrival intervals over **HTTP** (polling) or **WebSocket*
 
 Use this before mainnet launch to confirm **WSS upgrade** and **JSON-RPC** subscriptions (`eth_subscribe` / new heads) against the hosted RPC.
 
-From `eng/chain/reth`:
+From `reth/`:
 
 ```bash
 cargo run -p nexus-block-time-util -- --smoke --url 'wss://testnet.rpc.nexus.xyz'

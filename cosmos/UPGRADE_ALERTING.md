@@ -75,8 +75,8 @@ encoding.codec = "json"
 
 ## `halt_triggered` — chain about to halt for upgrade
 
-Emitted in the block where x/upgrade's `PreBlocker` is about to panic with
-`UPGRADE NEEDED` because:
+Emitted in the block where x/upgrade's `PreBlocker` is about to halt the
+process with `UPGRADE NEEDED` because:
 
 - a plan is scheduled for the current block height, **and**
 - the running binary has no handler registered for the plan name, **and**
@@ -106,7 +106,7 @@ Emitted at **ERROR** level. The JSON payload is the logger message:
 
 ### Semantics
 
-- Fires exactly **once** per halt (the chain panics immediately after).
+- Fires exactly **once** per halt (the chain halts immediately after).
 - Does **not** fire on routine upgrades where a handler is registered.
 - Emitted at ERROR level so level-based routing can page on-call faster
   than the INFO-level `upgrade_scheduled` heads-up.
@@ -134,8 +134,44 @@ uri            = "https://hooks.slack.com/services/XXX/YYY/ZZZ"
 encoding.codec = "json"
 ```
 
-## Follow-ups
+## Direct webhook notifier
 
-A dedicated notifier that posts directly to a configurable webhook URL
-(Slack, PagerDuty) is tracked separately — this document covers only the
-log-scrape MVP.
+In addition to the log-scrape path above, `nexusd` ships a built-in notifier
+that posts Slack-formatted messages directly from the node — no external log
+forwarder required. Implemented in
+[ENG-1491](https://linear.app/nexus/issue/ENG-1491).
+
+### Configuration
+
+Set a single environment variable on the validator process:
+
+```bash
+NEXUS_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+```
+
+When unset or empty, the notifier is a silent no-op and only the structured
+log path above is active. Supporting multiple URLs (Slack + PagerDuty) and
+non-Slack payload shapes is a planned follow-up.
+
+### Delivery semantics
+
+- **Payload**: Slack incoming-webhook body — `{"text": "<mrkdwn>"}`. The text
+  contains the same fields as the corresponding log event (plan name, height,
+  info, timestamp on halt).
+- **Dedup**: mirrors the log path.
+  - `upgrade_scheduled` fires once per distinct `(name, height, info)` tuple
+    and is re-sent on process restart while a plan is pending.
+  - `halt_triggered` fires exactly once at the halt block.
+- **Retries**: up to 3 attempts with exponential backoff (1s → 2s) on network
+  errors or 5xx responses. 4xx is terminal — retrying a misconfigured URL
+  wastes time the caller may not have.
+- **Timing**:
+  - `upgrade_scheduled` is dispatched asynchronously so a slow Slack endpoint
+    never stalls block production.
+  - `halt_triggered` is dispatched synchronously and bounded by the retry
+    schedule — x/upgrade's `PreBlocker` halts the chain with `UPGRADE NEEDED`
+    immediately after we return, so fire-and-forget would race the halt and
+    drop the alert.
+- **Failures are logged, never fatal**. A failed webhook delivery never halts
+  block production, never panics, and does not suppress the structured log
+  event consumed by the log-scrape path.

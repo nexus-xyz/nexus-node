@@ -33,7 +33,7 @@ type haltLog struct {
 //
 // When the plan has a handler, this is a real upgrade (not a halt) and no
 // log is emitted.
-func logHaltIfTriggered(ctx sdk.Context, k *upgradekeeper.Keeper) {
+func logHaltIfTriggered(ctx sdk.Context, k *upgradekeeper.Keeper, webhook *webhookNotifier) {
 	plan, err := k.GetUpgradePlan(ctx)
 	if err != nil {
 		if !errors.Is(err, upgradetypes.ErrNoUpgradePlanFound) {
@@ -66,4 +66,13 @@ func logHaltIfTriggered(ctx sdk.Context, k *upgradekeeper.Keeper) {
 		return
 	}
 	ctx.Logger().Error(string(encoded))
+
+	// Dispatch synchronously: x/upgrade's PreBlocker halts the chain with
+	// UPGRADE NEEDED immediately after we return. Firing and forgetting would
+	// race the shutdown and drop the alert. The notifier has a bounded total
+	// deadline (max retries × backoff + per-request timeout) so even a hung
+	// Slack endpoint cannot prevent the halt.
+	if webhook != nil {
+		webhook.Notify(haltEventName, formatHaltTriggeredText(payload))
+	}
 }

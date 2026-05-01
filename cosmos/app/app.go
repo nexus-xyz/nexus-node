@@ -123,6 +123,11 @@ type App struct {
 	// doc in upgrade_logging.go for why the state is required.
 	upgradeNotifier *upgradeNotifier
 
+	// webhookNotifier posts Slack alerts for upgrade_scheduled and
+	// halt_triggered events (ENG-1491). Configured via NEXUS_ALERT_WEBHOOK_URL;
+	// nil/empty URL → no-op, leaving only the structured log path in effect.
+	webhookNotifier *webhookNotifier
+
 	// readinessProbeConfig is loaded once when API routes register (see RegisterAPIRoutes).
 	readinessProbeConfig readinessProbeConfig
 	// readinessCometStatus is api.ClientCtx.Client.Status, set in RegisterAPIRoutes.
@@ -248,7 +253,8 @@ func New(
 	app.sm.RegisterStoreDecoders()
 
 	app.hooks = app.LoadHooks()
-	app.upgradeNotifier = newUpgradeNotifier(app.UpgradeKeeper)
+	app.webhookNotifier = newWebhookNotifierFromEnv(logger)
+	app.upgradeNotifier = newUpgradeNotifier(app.UpgradeKeeper, app.webhookNotifier)
 	app.ModuleManager.OrderBeginBlockers = beginBlockers
 	app.ModuleManager.OrderEndBlockers = endBlockers
 	app.SetPreBlocker(app.PreBlocker)
@@ -295,7 +301,7 @@ func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 // acceptable for an operator notification — the halt height is always many
 // blocks away — and lets both upgrade-related logs live in the same hook.
 func (app *App) PreBlocker(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
-	logHaltIfTriggered(ctx, app.UpgradeKeeper)
+	logHaltIfTriggered(ctx, app.UpgradeKeeper, app.webhookNotifier)
 	app.upgradeNotifier.MaybeLogNewPlan(ctx)
 	return app.ModuleManager.PreBlock(ctx)
 }

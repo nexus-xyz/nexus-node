@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.91.1 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.94.0 AS chef
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y libclang-dev pkg-config protobuf-compiler
