@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"cosmossdk.io/client/v2/autocli"
 	"cosmossdk.io/depinject"
 	"cosmossdk.io/log"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -18,7 +21,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"nexus/app"
+	"nexus/genesis"
 )
+
+const FlagChain = "chain"
 
 // NewRootCmd creates a new root command for nexusd. It is called once in the main function.
 func NewRootCmd() *cobra.Command {
@@ -71,9 +77,20 @@ func NewRootCmd() *cobra.Command {
 			customAppTemplate, customAppConfig := initAppConfig()
 			customCMTConfig := initCometBFTConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig, customCMTConfig)
+			if err := server.InterceptConfigsPreRunHandler(cmd,
+				customAppTemplate, customAppConfig, customCMTConfig); err != nil {
+				return err
+			}
+
+			return materializeEmbeddedGenesis(cmd)
 		},
 	}
+
+	rootCmd.PersistentFlags().String(
+		FlagChain, "",
+		"Embedded network genesis to use ("+formatNetworkList()+"). When set on the "+
+			"start command, the embedded genesis is materialized to <home>/config/genesis.json before launch.",
+	)
 
 	// Since the IBC modules don't support dependency injection, we need to
 	// manually register the modules on the client side.
@@ -122,4 +139,59 @@ func ProvideClientContext(
 	clientCtx = clientCtx.WithTxConfig(txConfig)
 
 	return clientCtx
+}
+
+// materializeEmbeddedGenesis writes the genesis embedded for --chain <network>
+// to <home>/config/genesis.json. It is a no-op unless --chain is set, and it
+// only writes for the `start` command — other subcommands keep validation but
+// skip materialization so embedded files are never touched by client flows.
+//
+// Always overwrites <home>/config/genesis.json with the embedded bytes —
+// passing --chain is an explicit opt-in by the operator.
+func materializeEmbeddedGenesis(cmd *cobra.Command) error {
+	chain, err := cmd.Flags().GetString(FlagChain)
+	if err != nil || chain == "" {
+		return nil
+	}
+
+	if !genesis.IsEmbedded(chain) {
+		return fmt.Errorf("--chain %q is not supported (available: %v)",
+			chain, genesis.Names())
+	}
+
+	if cmd.Name() != "start" {
+		return nil
+	}
+
+	home, err := cmd.Flags().GetString(flags.FlagHome)
+	if err != nil || home == "" {
+		home = app.DefaultNodeHome
+	}
+
+	embedded, err := genesis.Genesis(chain)
+	if err != nil {
+		return err
+	}
+
+	target := filepath.Join(home, "config", "genesis.json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	if err := os.WriteFile(target, embedded, 0o644); err != nil {
+		return fmt.Errorf("write embedded genesis: %w", err)
+	}
+	cmd.PrintErrf("Wrote embedded %q genesis to %s\n", chain, target)
+	return nil
+}
+
+func formatNetworkList() string {
+	names := genesis.Names()
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += "|"
+		}
+		out += n
+	}
+	return out
 }
