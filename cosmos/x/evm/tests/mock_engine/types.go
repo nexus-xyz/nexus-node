@@ -34,7 +34,6 @@ type EngineBehavior interface {
 		payloadAttributes *engine.PayloadAttributes,
 	) (engine.ForkChoiceResponse, *JsonRPCError)
 	HandleGetPayloadV4(state *EngineState, payloadID engine.PayloadID) (engine.ExecutionPayloadEnvelope, *JsonRPCError)
-	HandleGetPayloadV5(state *EngineState, payloadID engine.PayloadID) (engine.ExecutionPayloadEnvelope, *JsonRPCError)
 }
 
 // RecordedRequest captures the details of a JSON-RPC request for inspection in tests.

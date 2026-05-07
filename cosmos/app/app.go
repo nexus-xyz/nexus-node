@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"io"
 
 	clienthelpers "cosmossdk.io/client/v2/helpers"
@@ -13,7 +12,6 @@ import (
 	upgradekeeper "cosmossdk.io/x/upgrade/keeper"
 
 	abci "github.com/cometbft/cometbft/abci/types"
-	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -50,7 +48,6 @@ import (
 	"nexus/docs"
 	"nexus/lib"
 	evmmodulekeeper "nexus/x/evm/keeper"
-	globalfeekeeper "nexus/x/globalfee/keeper"
 )
 
 const (
@@ -60,9 +57,6 @@ const (
 	AccountAddressPrefix = "nexus"
 	// ChainCoinType is the coin type of the chain. This is unused.
 	ChainCoinType = 118
-	// maxCosmosTxsPerBlock is the maximum number of Cosmos SDK transactions
-	// permitted in a single block alongside the EVM execution payload.
-	maxCosmosTxsPerBlock = 1
 )
 
 // DefaultNodeHome default home directories for the application daemon
@@ -105,8 +99,7 @@ type App struct {
 	ICAHostKeeper       icahostkeeper.Keeper
 	TransferKeeper      ibctransferkeeper.Keeper
 
-	EvmKeeper       evmmodulekeeper.Keeper
-	GlobalFeeKeeper globalfeekeeper.Keeper
+	EvmKeeper evmmodulekeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// CoreClient for outbound gRPC requests to Core (Cosmos -> Core)
@@ -117,24 +110,6 @@ type App struct {
 
 	// block height to state hooks
 	hooks BlockHooks
-
-	// upgradeNotifier dedupes upgrade_scheduled logs so we emit exactly once per
-	// new plan instead of every block while it sits in the keeper. See the type
-	// doc in upgrade_logging.go for why the state is required.
-	upgradeNotifier *upgradeNotifier
-
-	// webhookNotifier posts Slack alerts for upgrade_scheduled and
-	// halt_triggered events (ENG-1491). Configured via NEXUS_ALERT_WEBHOOK_URL;
-	// nil/empty URL → no-op, leaving only the structured log path in effect.
-	webhookNotifier *webhookNotifier
-
-	// readinessProbeConfig is loaded once when API routes register (see RegisterAPIRoutes).
-	readinessProbeConfig readinessProbeConfig
-	// readinessCometStatus is api.ClientCtx.Client.Status, set in RegisterAPIRoutes.
-	// CometBFT populates SyncInfo.CatchingUp from consensus.Reactor.WaitSync(); the public
-	// path to that value is rpc/core.Environment.Status, which local.Client.Status calls
-	// in-process (no HTTP to localhost). The SDK does not expose the reactor or Node to the app.
-	readinessCometStatus func(context.Context) (*coretypes.ResultStatus, error)
 }
 
 func init() {
@@ -212,7 +187,6 @@ func New(
 		&app.CircuitBreakerKeeper,
 		&app.ParamsKeeper,
 		&app.EvmKeeper,
-		&app.GlobalFeeKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -221,21 +195,20 @@ func New(
 
 	// DISABLED optimistic execution: EVM client state is not correctly synced with this feature,
 	// and causes the chain to panic during slow block production.
+	// We will likely not enable this feature until the above if fixed, or because we moved onto a
+	// different consensus engine.
 	// baseAppOptions = append(baseAppOptions, baseapp.SetOptimisticExecution())
 
 	baseAppOptions = append(baseAppOptions, func(bapp *baseapp.BaseApp) {
 		// Use the EVM engine to create block proposals.
-		bapp.SetPrepareProposal(makePrepareProposalHandler(&app.EvmKeeper, app.txConfig, maxCosmosTxsPerBlock))
+		bapp.SetPrepareProposal(app.EvmKeeper.PrepareProposal)
 
 		// Route proposed messages to keepers for verification and external state updates.
-		router := makeProcessProposalRouter(app)
-		bapp.SetProcessProposal(makeProcessProposalHandler(router, app.txConfig, maxCosmosTxsPerBlock))
+		bapp.SetProcessProposal(makeProcessProposalHandler(makeProcessProposalRouter(app), app.txConfig))
 	})
 
 	// build app
 	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
-
-	app.SetAnteHandler(newAnteHandler(app.AuthKeeper, app.BankKeeper, app.txConfig, app.GlobalFeeKeeper))
 
 	// register legacy modules
 	if err := app.registerIBCModules(appOpts); err != nil {
@@ -253,11 +226,8 @@ func New(
 	app.sm.RegisterStoreDecoders()
 
 	app.hooks = app.LoadHooks()
-	app.webhookNotifier = newWebhookNotifierFromEnv(logger)
-	app.upgradeNotifier = newUpgradeNotifier(app.UpgradeKeeper, app.webhookNotifier)
 	app.ModuleManager.OrderBeginBlockers = beginBlockers
 	app.ModuleManager.OrderEndBlockers = endBlockers
-	app.SetPreBlocker(app.PreBlocker)
 	app.SetBeginBlocker(app.BeginBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 
@@ -276,8 +246,6 @@ func New(
 		return resp, nil
 	})
 
-	app.registerMigrations()
-
 	if err := app.Load(loadLatest); err != nil {
 		panic(err)
 	}
@@ -289,21 +257,6 @@ func New(
 func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 	subspace, _ := app.ParamsKeeper.GetSubspace(moduleName)
 	return subspace
-}
-
-// PreBlocker runs before each block's PreBlock stage. It emits structured logs
-// for upgrade-related events, then delegates to the standard module PreBlock
-// chain.
-//
-// Note on timing: the upgrade_scheduled notification has a one-block delay
-// relative to governance passing the plan. A proposal stored during block N's
-// tx processing is only visible from PreBlocker of block N+1. This is
-// acceptable for an operator notification — the halt height is always many
-// blocks away — and lets both upgrade-related logs live in the same hook.
-func (app *App) PreBlocker(ctx sdk.Context, _ *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
-	logHaltIfTriggered(ctx, app.UpgradeKeeper, app.webhookNotifier)
-	app.upgradeNotifier.MaybeLogNewPlan(ctx)
-	return app.ModuleManager.PreBlock(ctx)
 }
 
 func (app *App) BeginBlocker(ctx sdk.Context) (sdk.BeginBlock, error) {
@@ -384,13 +337,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 	// register app's OpenAPI routes.
 	docs.RegisterOpenAPIService(Name, apiSvr.Router)
-
-	app.readinessProbeConfig = loadReadinessProbeConfig()
-	if apiSvr.ClientCtx.Client != nil {
-		c := apiSvr.ClientCtx.Client
-		app.readinessCometStatus = c.Status
-	}
-	registerReadinessHandlers(apiSvr.Router, app)
 }
 
 // GetMaccPerms returns a copy of the module account permissions

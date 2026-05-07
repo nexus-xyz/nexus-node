@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,6 +40,9 @@ type IntegrationTestSuite struct {
 }
 
 func (s *IntegrationTestSuite) SetupSuite() {
+	s.T().Log("setting up integration test suite")
+
+	// Set up JWT secret for the mock engine
 	s.tempDir = s.T().TempDir()
 	jwtFile := filepath.Join(s.tempDir, "jwt.hex")
 	jwtSecret := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -49,16 +51,9 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	s.T().Setenv("EVM_ENGINE_JWT_SECRET_PATH", jwtFile)
 
+	// Set up other suite-level resources
 	s.addressCodec = addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
 	s.storeKey = types.NewKVStoreKey(evmtypes.StoreKey)
-}
-
-// withPrepareProposalDeadline wraps s.ctx so PrepareProposal honors a shorter deadline than the default 10s.
-func (s *IntegrationTestSuite) withPrepareProposalDeadline(d time.Duration) {
-	s.T().Helper()
-	c, cancel := context.WithTimeout(s.ctx.Context(), d)
-	s.T().Cleanup(cancel)
-	s.ctx = s.ctx.WithContext(c)
 }
 
 // SetupTestWithBehavior initializes a mock engine with a specific behavior and sets up the keeper for a test.
@@ -73,6 +68,7 @@ func (s *IntegrationTestSuite) SetupTestWithBehavior(behavior mock_engine.Engine
 	s.Require().NoError(err)
 	engineAddr := parsedURL.Host
 	s.Require().NotEmpty(engineAddr, "engine URL must include a host")
+	// Start mock engine
 	s.mockEngine = mock_engine.NewMockEngine(engineAddr, behavior)
 	err = s.mockEngine.Start()
 	s.Require().NoError(err)
@@ -80,14 +76,16 @@ func (s *IntegrationTestSuite) SetupTestWithBehavior(behavior mock_engine.Engine
 
 	s.ctx = testutil.DefaultContextWithDB(s.T(), s.storeKey, types.NewTransientStoreKey("transient_test")).Ctx
 
+	// Set up keeper
 	encCfg := moduletestutil.MakeTestEncodingConfig(evmmodule.AppModule{})
 	storeService := runtime.NewKVStoreService(s.storeKey)
 	authority := authtypes.NewModuleAddress(evmtypes.GovModuleName)
 	timestamp := uint64(0)
 	chainSpec := nexus.ChainSpec{
-		PragueTimestamp: &timestamp,
+		EngineV4PragueTimestamp: &timestamp,
 	}
 
+	// Create keeper
 	s.keeper = keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
@@ -100,6 +98,7 @@ func (s *IntegrationTestSuite) SetupTestWithBehavior(behavior mock_engine.Engine
 }
 
 func (s *IntegrationTestSuite) TearDownTest() {
+	s.T().Log("tearing down test")
 	if s.mockEngine != nil {
 		err := s.mockEngine.Stop()
 		s.Require().NoError(err)
@@ -107,6 +106,8 @@ func (s *IntegrationTestSuite) TearDownTest() {
 }
 
 func (s *IntegrationTestSuite) TearDownSuite() {
+	s.T().Log("tearing down integration test suite")
+	// Delete the temp dir (contains the JWT secret file)
 	err := os.RemoveAll(s.tempDir)
 	s.Require().NoError(err)
 }
@@ -124,6 +125,7 @@ func (s *IntegrationTestSuite) SetDefaultBlockState() {
 
 func (s *IntegrationTestSuite) TestKeeperInitialization() {
 	s.SetupTestWithBehavior(&mock_engine.DefaultEngineBehavior{})
+	s.T().Log("running TestKeeperInitialization")
 	s.Require().NotNil(s.keeper)
 	authorityBytes := s.keeper.GetAuthority()
 	authorityAddr, err := s.addressCodec.BytesToString(authorityBytes)
@@ -133,14 +135,18 @@ func (s *IntegrationTestSuite) TestKeeperInitialization() {
 
 func (s *IntegrationTestSuite) TestPrepareProposal() {
 	s.SetupTestWithBehavior(&mock_engine.DefaultEngineBehavior{})
+	s.T().Log("running TestPrepareProposal")
+
 	s.SetDefaultBlockState()
 
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
 	s.Require().Len(resp.Txs, 1)
@@ -148,38 +154,47 @@ func (s *IntegrationTestSuite) TestPrepareProposal() {
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithForkchoiceHang() {
 	s.SetupTestWithBehavior(&mock_engine.ForkchoiceHangBehavior{})
-	s.SetDefaultBlockState()
-	s.withPrepareProposalDeadline(500 * time.Millisecond)
+	s.T().Log("running TestPrepareProposalWithForkchoiceHang")
 
+	s.SetDefaultBlockState()
+
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().ErrorContains(err, "context deadline exceeded")
 	s.Require().Nil(resp)
 }
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithGetPayloadHang() {
 	s.SetupTestWithBehavior(&mock_engine.GetPayloadHangBehavior{})
-	s.SetDefaultBlockState()
-	s.withPrepareProposalDeadline(500 * time.Millisecond)
+	s.T().Log("running TestPrepareProposalWithGetPayloadHang")
 
+	s.SetDefaultBlockState()
+
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().ErrorContains(err, "context deadline exceeded")
 	s.Require().Nil(resp)
 }
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithInitialFail() {
 	s.SetupTestWithBehavior(&mock_engine.InitialFailBehavior{})
+	s.T().Log("running TestPrepareProposalWithInitialFail")
+
 	s.SetDefaultBlockState()
 
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
@@ -194,6 +209,7 @@ func (s *IntegrationTestSuite) TestPrepareProposalWithInitialFail() {
 		return err == nil
 	}, 5*time.Second, 1*time.Second, "prepare proposal should eventually succeed")
 
+	// Verify the transaction
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
 	s.Require().Len(resp.Txs, 1)
@@ -201,8 +217,11 @@ func (s *IntegrationTestSuite) TestPrepareProposalWithInitialFail() {
 
 func (s *IntegrationTestSuite) TestPrepareProposalInitialBlockEmptyTx() {
 	s.SetupTestWithBehavior(&mock_engine.DefaultEngineBehavior{})
+	s.T().Log("running TestPrepareProposalInitialBlockEmptyTx  ")
+
 	s.SetDefaultBlockState()
 
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 1,
 		Time:   time.Now(),
@@ -210,6 +229,7 @@ func (s *IntegrationTestSuite) TestPrepareProposalInitialBlockEmptyTx() {
 
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
 	s.Require().Len(resp.Txs, 0)
@@ -217,53 +237,56 @@ func (s *IntegrationTestSuite) TestPrepareProposalInitialBlockEmptyTx() {
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithForkchoiceError() {
 	s.SetupTestWithBehavior(&mock_engine.ForkchoiceInvalidStatusBehavior{})
+	s.T().Log("running TestPrepareProposalWithForkchoiceError")
+
 	s.SetDefaultBlockState()
 
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().ErrorContains(err, "forkchoice not updated with status: INVALID")
 	s.Require().Nil(resp)
 }
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithForkchoiceNilPayload() {
 	s.SetupTestWithBehavior(&mock_engine.ForkchoiceNilPayloadBehavior{})
+	s.T().Log("running TestPrepareProposalWithForkchoiceNilPayload")
+
 	s.SetDefaultBlockState()
 
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
+	// Verify the transaction
 	s.Require().ErrorContains(err, "payload ID is nil")
 	s.Require().Nil(resp)
 }
 
 func (s *IntegrationTestSuite) TestPrepareProposalWithUnknownPayload() {
 	s.SetupTestWithBehavior(&mock_engine.UnknownPayloadBehavior{})
-	s.SetDefaultBlockState()
-	s.withPrepareProposalDeadline(2 * time.Second)
+	s.T().Log("running TestPrepareProposalWithUnknownPayload")
 
+	s.SetDefaultBlockState()
+
+	// Prepare a proposal
 	req := &abci.RequestPrepareProposal{
 		Height: 2,
 		Time:   time.Now(),
 	}
 	resp, err := s.keeper.PrepareProposal(s.ctx, req)
 
-	s.Require().ErrorIs(err, context.DeadlineExceeded)
+	// Verify the transaction
+	s.Require().ErrorContains(err, "Unknown payload")
 	s.Require().Nil(resp)
-	var nGet int
-	for _, r := range s.mockEngine.GetRequests() {
-		switch r.Method {
-		case "engine_getPayloadV3", "engine_getPayloadV4", "engine_getPayloadV5":
-			nGet++
-		}
-	}
-	s.Require().GreaterOrEqual(nGet, 2, "expected getPayload retries while EL returns unknown payload")
 }
 
 func TestIntegrationTestSuite(t *testing.T) {

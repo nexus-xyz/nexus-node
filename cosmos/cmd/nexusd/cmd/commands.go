@@ -79,11 +79,9 @@ func initRootCmd(
 				if cosmosAddr == "" {
 					cosmosAddr = lib.GRPCDefaultAddr
 				}
-				// HealthCheck responses report 0; the running App's block
-				// height is not plumbed through this PostSetup callback.
 				impl := lib.NewCosmosServer(
 					"",
-					func() int64 { return 0 },
+					func() int64 { return 0 }, // Stub block height for now
 					logger,
 				)
 

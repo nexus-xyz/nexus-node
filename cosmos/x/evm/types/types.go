@@ -7,10 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// MaxTxSize is the maximum size of a single transaction in bytes (20 MiB).
-// Enforced in PrepareProposal and ProcessProposal to bound validator memory
-// and storage.
-const MaxTxSize = 20 * 1024 * 1024
+type TestFieldValue string
 
 // BlockState represents the current block state information
 type BlockState struct {

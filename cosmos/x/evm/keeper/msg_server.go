@@ -8,13 +8,11 @@ import (
 
 	"nexus/x/evm/types"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
 	evmtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/hashicorp/go-metrics"
 )
 
 const (
@@ -73,12 +71,6 @@ func (s msgServer) ExecutionPayload(
 			return false, nil
 		}
 
-		telemetry.IncrCounterWithLabels(
-			[]string{"evm", "payload_status"},
-			1,
-			[]metrics.Label{telemetry.NewLabel("status", status.Status)},
-		)
-
 		// Proceed if our status is valid or syncing
 		if status.Status != engine.VALID && status.Status != engine.SYNCING {
 			return false, errors.New("payload is not valid with status: " + status.Status)
@@ -103,12 +95,6 @@ func (s msgServer) ExecutionPayload(
 		if err != nil {
 			return false, nil
 		}
-
-		telemetry.IncrCounterWithLabels(
-			[]string{"evm", "forkchoice_status"},
-			1,
-			[]metrics.Label{telemetry.NewLabel("status", response.PayloadStatus.Status)},
-		)
 
 		if response.PayloadStatus.Status == engine.INVALID {
 			return false, errors.New("forkchoice not updated with status: " + response.PayloadStatus.Status)
@@ -253,12 +239,7 @@ func (k Keeper) sendPayload(
 		err    error
 	)
 
-	if k.chainSpec.IsAmsterdamActive(payload.Timestamp) {
-		status, err = k.engineClient.NewPayloadV5(ctx, payload, versionedHashes, &appHash, nil)
-		if err != nil {
-			return engine.PayloadStatusV1{}, err
-		}
-	} else if k.chainSpec.IsPragueActive(payload.Timestamp) {
+	if k.chainSpec.IsEngineV4PragueEnabled(payload.Timestamp) {
 		status, err = k.engineClient.NewPayloadV4(ctx, payload, versionedHashes, &appHash, nil)
 		if err != nil {
 			return engine.PayloadStatusV1{}, err

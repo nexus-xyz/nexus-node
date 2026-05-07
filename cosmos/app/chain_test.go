@@ -27,22 +27,22 @@ func (s *ChainTestSuite) writeConfigFile(contents string) {
 
 func (s *ChainTestSuite) TestEmptyConfig() {
 	chainSpec := app.LoadChainSpec()
-	s.Require().Nil(chainSpec.PragueTimestamp)
+	s.Require().Nil(chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithFork() {
 	contents := `forks: { prague_timestamp: 1 }`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(1), *chainSpec.PragueTimestamp)
+	s.Require().NotNil(chainSpec.EngineV4PragueTimestamp)
+	s.Require().Equal(uint64(1), *chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithInvalidFork() {
 	contents := `forks: { abcd: 1 }`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().Nil(chainSpec.PragueTimestamp)
+	s.Require().Nil(chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithPragueTimestampZero() {
@@ -50,8 +50,8 @@ func (s *ChainTestSuite) TestConfigWithPragueTimestampZero() {
   prague_timestamp: 0`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(0), *chainSpec.PragueTimestamp)
+	s.Require().NotNil(chainSpec.EngineV4PragueTimestamp)
+	s.Require().Equal(uint64(0), *chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithPragueTimestampLarge() {
@@ -59,8 +59,8 @@ func (s *ChainTestSuite) TestConfigWithPragueTimestampLarge() {
   prague_timestamp: 1000000`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(1000000), *chainSpec.PragueTimestamp)
+	s.Require().NotNil(chainSpec.EngineV4PragueTimestamp)
+	s.Require().Equal(uint64(1000000), *chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithMultiLineYAML() {
@@ -68,23 +68,23 @@ func (s *ChainTestSuite) TestConfigWithMultiLineYAML() {
   prague_timestamp: 42`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(42), *chainSpec.PragueTimestamp)
+	s.Require().NotNil(chainSpec.EngineV4PragueTimestamp)
+	s.Require().Equal(uint64(42), *chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithMissingForksSection() {
 	contents := `other_field: value`
 	s.writeConfigFile(contents)
-	// Missing forks section results in empty ChainSpec (PragueTimestamp is nil)
+	// Missing forks section results in empty ChainSpec (EngineV4PragueTimestamp is nil)
 	chainSpec := app.LoadChainSpec()
-	s.Require().Nil(chainSpec.PragueTimestamp)
+	s.Require().Nil(chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithEmptyForksSection() {
 	contents := `forks: {}`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().Nil(chainSpec.PragueTimestamp)
+	s.Require().Nil(chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithInvalidYAML() {
@@ -122,15 +122,15 @@ other_section:
   some_field: value`
 	s.writeConfigFile(contents)
 	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(100), *chainSpec.PragueTimestamp)
+	s.Require().NotNil(chainSpec.EngineV4PragueTimestamp)
+	s.Require().Equal(uint64(100), *chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithMissingConfigFile() {
 	// Unset the config path to simulate missing file
 	s.T().Setenv(lib.NEXUS_CONFIG_PATH, "")
 	chainSpec := app.LoadChainSpec()
-	s.Require().Nil(chainSpec.PragueTimestamp)
+	s.Require().Nil(chainSpec.EngineV4PragueTimestamp)
 }
 
 func (s *ChainTestSuite) TestConfigWithPragueTimestampAsString() {
@@ -138,28 +138,6 @@ func (s *ChainTestSuite) TestConfigWithPragueTimestampAsString() {
   prague_timestamp: "100"`
 	s.writeConfigFile(contents)
 	// YAML cannot unmarshal string into uint64, should panic
-	s.Require().Panics(func() {
-		app.LoadChainSpec()
-	})
-}
-
-func (s *ChainTestSuite) TestConfigWithPragueAndOsakaTimestamp() {
-	contents := `forks:
-  prague_timestamp: 10
-  osaka_timestamp: 20`
-	s.writeConfigFile(contents)
-	chainSpec := app.LoadChainSpec()
-	s.Require().NotNil(chainSpec.PragueTimestamp)
-	s.Require().Equal(uint64(10), *chainSpec.PragueTimestamp)
-	s.Require().NotNil(chainSpec.OsakaTimestamp)
-	s.Require().Equal(uint64(20), *chainSpec.OsakaTimestamp)
-}
-
-func (s *ChainTestSuite) TestConfigWithOsakaTimestampWithoutPraguePanics() {
-	contents := `forks:
-  osaka_timestamp: 50`
-	s.writeConfigFile(contents)
-	// ChainSpec.Validate requires prague_timestamp when osaka_timestamp is set (fork order).
 	s.Require().Panics(func() {
 		app.LoadChainSpec()
 	})

@@ -20,10 +20,3 @@ func (b *GetPayloadHangBehavior) HandleGetPayloadV4(
 	time.Sleep(1 * time.Second)
 	return b.DefaultEngineBehavior.HandleGetPayloadV4(state, payloadID)
 }
-
-func (b *GetPayloadHangBehavior) HandleGetPayloadV5(
-	state *EngineState,
-	payloadID engine.PayloadID,
-) (engine.ExecutionPayloadEnvelope, *JsonRPCError) {
-	return b.HandleGetPayloadV4(state, payloadID)
-}

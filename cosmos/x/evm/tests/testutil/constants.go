@@ -17,4 +17,6 @@ var (
 	DefaultStateHeight uint64 = 0
 	// DefaultStateTimestamp is the starting timestamp used by tests
 	DefaultStateTimestamp uint64 = 1000
+	// MaxTxSize is the maximum size of a transaction in bytes
+	MaxTxSize = 20 * 1024 * 1024 // 20MB
 )

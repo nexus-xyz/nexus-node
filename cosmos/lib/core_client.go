@@ -73,6 +73,8 @@ func newCoreClientInternal(
 
 	// Build dial options with JWT authentication
 	opts := []grpc.DialOption{
+		// TODO: Add TLS support for production deployments. Using insecure
+		// credentials is acceptable for local development only.
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUnaryInterceptor(JWTUnaryClientInterceptor(jwtSecret)),
 	}

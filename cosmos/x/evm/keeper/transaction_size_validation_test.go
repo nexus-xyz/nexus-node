@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"nexus/x/evm/types"
+	"nexus/x/evm/tests/testutil"
 
 	"github.com/stretchr/testify/require"
 )
@@ -20,19 +20,19 @@ func TestTransactionSizeBoundaryConditions(t *testing.T) {
 	}{
 		{
 			name:           "transaction smaller than limit",
-			txSize:         types.MaxTxSize - 1, // 20MB - 1 byte
+			txSize:         testutil.MaxTxSize - 1, // 20MB - 1 byte
 			expectedResult: "ACCEPTED",
 			shouldPass:     true,
 		},
 		{
 			name:           "transaction exactly at limit",
-			txSize:         types.MaxTxSize, // exactly 20MB
+			txSize:         testutil.MaxTxSize, // exactly 20MB
 			expectedResult: "ACCEPTED",
 			shouldPass:     true,
 		},
 		{
 			name:           "transaction larger than limit",
-			txSize:         types.MaxTxSize + 1, // 20MB + 1 byte
+			txSize:         testutil.MaxTxSize + 1, // 20MB + 1 byte
 			expectedResult: "REJECTED",
 			shouldPass:     false,
 		},
@@ -50,7 +50,7 @@ func TestTransactionSizeBoundaryConditions(t *testing.T) {
 		},
 		{
 			name:           "significantly oversized transaction",
-			txSize:         types.MaxTxSize * 2, // 40MB
+			txSize:         testutil.MaxTxSize * 2, // 40MB
 			expectedResult: "REJECTED",
 			shouldPass:     false,
 		},
@@ -62,18 +62,18 @@ func TestTransactionSizeBoundaryConditions(t *testing.T) {
 			txData := make([]byte, tt.txSize)
 
 			// Test the validation logic from PrepareProposal/ProcessProposal
-			isOversized := len(txData) > types.MaxTxSize
+			isOversized := len(txData) > testutil.MaxTxSize
 
 			if tt.shouldPass {
 				require.False(t, isOversized,
 					"Transaction of size %d bytes should be accepted (within %d byte limit)",
-					tt.txSize, types.MaxTxSize)
-				require.LessOrEqual(t, len(txData), types.MaxTxSize, "Transaction size should be <= limit")
+					tt.txSize, testutil.MaxTxSize)
+				require.LessOrEqual(t, len(txData), testutil.MaxTxSize, "Transaction size should be <= limit")
 			} else {
 				require.True(t, isOversized,
 					"Transaction of size %d bytes should be rejected (exceeds %d byte limit)",
-					tt.txSize, types.MaxTxSize)
-				require.Greater(t, len(txData), types.MaxTxSize, "Transaction size should be > limit")
+					tt.txSize, testutil.MaxTxSize)
+				require.Greater(t, len(txData), testutil.MaxTxSize, "Transaction size should be > limit")
 			}
 
 			// Verify the logic matches our expectation
@@ -97,16 +97,16 @@ func TestTransactionSizeBoundaryConditions(t *testing.T) {
 // TestTransactionSizeErrorMessages tests that error messages are correctly formatted
 func TestTransactionSizeErrorMessages(t *testing.T) {
 
-	oversizedTx := make([]byte, types.MaxTxSize+1000) // 20MB + 1000 bytes
+	oversizedTx := make([]byte, testutil.MaxTxSize+1000) // 20MB + 1000 bytes
 
 	// Test error message format matches what's used in the actual code
-	if len(oversizedTx) > types.MaxTxSize {
+	if len(oversizedTx) > testutil.MaxTxSize {
 		expectedError := fmt.Sprintf("transaction too large: %d bytes exceeds maximum of %d bytes",
-			len(oversizedTx), types.MaxTxSize)
+			len(oversizedTx), testutil.MaxTxSize)
 
 		require.Contains(t, expectedError, "transaction too large")
 		require.Contains(t, expectedError, fmt.Sprintf("%d bytes", len(oversizedTx)))
-		require.Contains(t, expectedError, fmt.Sprintf("%d bytes", types.MaxTxSize))
+		require.Contains(t, expectedError, fmt.Sprintf("%d bytes", testutil.MaxTxSize))
 		require.Contains(t, expectedError, "exceeds maximum")
 
 		t.Logf("Error message format: %s", expectedError)
@@ -116,13 +116,13 @@ func TestTransactionSizeErrorMessages(t *testing.T) {
 // TestTransactionSizeConstants verifies the constants match between different files
 func TestTransactionSizeConstants(t *testing.T) {
 	// Verify the constant value
-	require.Equal(t, 20971520, types.MaxTxSize, "Max transaction size should be exactly 20MB in bytes")
+	require.Equal(t, 20971520, testutil.MaxTxSize, "Max transaction size should be exactly 20MB in bytes")
 
 	// Verify conversions
-	require.Equal(t, 20.0, float64(types.MaxTxSize)/(1024*1024), "Should be exactly 20 MB")
-	require.Equal(t, 20480, types.MaxTxSize/1024, "Should be exactly 20480 KB")
+	require.Equal(t, 20.0, float64(testutil.MaxTxSize)/(1024*1024), "Should be exactly 20 MB")
+	require.Equal(t, 20480, testutil.MaxTxSize/1024, "Should be exactly 20480 KB")
 
-	t.Logf("Max transaction size: %d bytes (%.1f MB)", types.MaxTxSize, float64(types.MaxTxSize)/(1024*1024))
+	t.Logf("Max transaction size: %d bytes (%.1f MB)", testutil.MaxTxSize, float64(testutil.MaxTxSize)/(1024*1024))
 }
 
 // TestTransactionSizeLogic tests the core validation logic in isolation
@@ -132,18 +132,18 @@ func TestTransactionSizeLogic(t *testing.T) {
 		size     int
 		expected bool // true if should be rejected
 	}{
-		{0, false},                   // empty - should pass
-		{1, false},                   // tiny - should pass
-		{types.MaxTxSize - 1, false}, // just under - should pass
-		{types.MaxTxSize, false},     // exactly at limit - should pass
-		{types.MaxTxSize + 1, true},  // just over - should reject
-		{types.MaxTxSize * 2, true},  // way over - should reject
+		{0, false},                      // empty - should pass
+		{1, false},                      // tiny - should pass
+		{testutil.MaxTxSize - 1, false}, // just under - should pass
+		{testutil.MaxTxSize, false},     // exactly at limit - should pass
+		{testutil.MaxTxSize + 1, true},  // just over - should reject
+		{testutil.MaxTxSize * 2, true},  // way over - should reject
 	}
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("size_%d", tc.size), func(t *testing.T) {
 			// This is the exact logic used in the actual code
-			isOversized := tc.size > types.MaxTxSize
+			isOversized := tc.size > testutil.MaxTxSize
 
 			require.Equal(t, tc.expected, isOversized,
 				"Size %d bytes: expected rejected=%v, got rejected=%v", tc.size, tc.expected, isOversized)
@@ -155,11 +155,11 @@ func TestTransactionSizeLogic(t *testing.T) {
 func BenchmarkTransactionSizeCheck(b *testing.B) {
 
 	// Test with a transaction at the limit
-	txData := make([]byte, types.MaxTxSize)
+	txData := make([]byte, testutil.MaxTxSize)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// This is the core validation logic - should be extremely fast
-		_ = len(txData) > types.MaxTxSize
+		_ = len(txData) > testutil.MaxTxSize
 	}
 }

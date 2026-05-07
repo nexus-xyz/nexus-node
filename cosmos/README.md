@@ -1,111 +1,62 @@
-# nexus (cosmos)
+# nexus
 
-The Cosmos SDK half of the Nexus chain. This module compiles to `nexusd`, the
-consensus-layer node: it drives an execution-layer client (an EVM, paired over
-the Ethereum Engine API) and produces blocks via CometBFT (ABCI++ v0.38).
+**nexus** is a blockchain built using Cosmos SDK and Tendermint and created with [Ignite CLI](https://ignite.com/cli).
 
-This directory is one half of a CL/EL split. `nexusd` owns consensus,
-governance, staking, IBC, and fee policy; the EL owns transaction execution and
-state. They communicate over JWT-authenticated Engine API JSON-RPC plus a side
-gRPC channel for health and out-of-band signals.
+## Get started
 
-## Layout
-
-| Path                | What lives here                                                                              |
-| ------------------- | -------------------------------------------------------------------------------------------- |
-| `app/`              | The `App` wiring — module manager, ante handlers, `ProcessProposal`, upgrades, IBC, exports. |
-| `cmd/nexusd/`       | Binary entrypoint and root cobra command tree (start, init, testnet, keys, config).          |
-| `lib/`              | Engine API client (`engine.go`), JWT auth, and the gRPC server/client used by L1↔EL.         |
-| `x/evm/`            | Custom module that bridges ABCI++ to the Engine API. The heart of CL/EL coupling.            |
-| `x/globalfee/`      | Minimum-gas-price module enforced in the ante handler.                                       |
-| `x/gen/`            | Generated protobuf bindings for the `nexus` proto packages.                                  |
-| `proto/nexus/`      | Protobuf source for the `evm` and `globalfee` modules.                                       |
-| `docs/`             | OpenAPI assets and the L1↔Core gRPC integration notes.                                       |
-| `testutil/server/`  | Helpers for spinning up a node in tests.                                                     |
-| `tools/tools.go`    | Tool-only imports tracked by `go mod`.                                                       |
-
-## ABCI++ ↔ Engine API mapping
-
-`x/evm` does not implement a normal Cosmos transaction flow — it forwards block
-production to the EL and records the resulting payload on chain. The mapping
-(see `CODEBASE_OVERVIEW.md` for the longer version):
-
-- **`PrepareProposal`** — `x/evm/keeper/abci.go`. Calls `ForkchoiceUpdatedV3` →
-  `GetPayloadV3` against the EL, then packages the returned execution payload
-  as a single `MsgExecutionPayload` Cosmos transaction (the only non-system tx
-  permitted per block; `maxCosmosTxsPerBlock = 1` in `app/app.go`).
-- **`ProcessProposal`** — `app/proposal.go`. Validates that the proposed block
-  contains exactly the expected execution-payload transaction shape.
-- **`FinalizeBlock`** — not overridden directly; finalize-time logic runs in
-  the `MsgExecutionPayload` handler in `x/evm/keeper/msg_server.go`, which
-  asserts `ExecModeFinalize` and submits `NewPayloadV3` to the EL.
-- **`ExtendVote` / `VerifyVoteExtension` / `Commit`** — defaults; no override.
-
-The Engine API client itself (`lib/engine.go`) speaks `V3`, `V4` (Prague), and
-`V5` (Osaka) — fork selection happens at call time, with a transition log line
-emitted once per process when the active version changes.
-
-## Build & run
-
-Requires Go 1.25.8 (matches `go.mod`).
-
-```bash
-make install        # builds and installs nexusd into $GOPATH/bin
-make test           # go vet + govulncheck + unit tests
-make test-race      # unit tests with -race
-make lint           # golangci-lint
-make proto-gen      # regenerate protobuf bindings (needs ignite + buf)
+```
+ignite chain serve
 ```
 
-Module-level fuzzing targets (`make fuzz`, `make fuzz-long`) discover and run
-every `Fuzz*` test in the tree.
+`serve` command installs dependencies, builds, initializes, and starts your blockchain in development.
 
-The Docker image builds `nexusd` directly with `go build` — Ignite is **not**
-required at runtime. See `Dockerfile` and `docker-entrypoint.sh`.
+### Configure
 
-## Configuration
+Your blockchain in development can be configured with `config.yml`. To learn more, see the [Ignite CLI docs](https://docs.ignite.com).
 
-Node-side parameters specific to this module are read from a YAML config block
-shaped by `x/evm/keeper/keeper.go` (see `Config`, `UseBlockTimestamp`):
+### Web Frontend
 
-- `suggested_fee_recipient` — address passed to the EL on forkchoice updates.
-- `use_block_timestamp` — optional override that derives EL block timestamps
-  from the CometBFT block time over a `[start_block_height, stop_block_height)`
-  window plus an offset.
-- `unix_timestamp_offset` — flat offset applied outside that window.
+Additionally, Ignite CLI offers a frontend scaffolding feature (based on Vue) to help you quickly build a web frontend for your blockchain:
 
-Operational config (genesis, denoms, accounts) lives in `config.yml` for local
-dev and is generated by `nexusd init` for real networks.
+Use: `ignite scaffold vue`
+This command can be run within your scaffolded blockchain project.
 
-## Operational docs
+For more information see the [monorepo for Ignite front-end development](https://github.com/ignite/web).
 
-- [`CODEBASE_OVERVIEW.md`](./CODEBASE_OVERVIEW.md) — pointer map from ABCI++
-  concepts to concrete files. Read this before changing block production.
-- [`UPGRADE_ALERTING.md`](./UPGRADE_ALERTING.md) — structured log events
-  (`upgrade_scheduled`, `halt_triggered`) emitted across the upgrade lifecycle,
-  with example Loki and Vector alerting rules.
-- [`docs/grpc-communication.md`](./docs/grpc-communication.md) — wire-level
-  notes on the L1↔Core gRPC channel (ports, services, grpcurl recipes).
+## Release
 
-## Verifying release images
+To release a new version of your blockchain, create and push a new tag with `v` prefix. A new draft release with the configured targets will be created.
 
-Container images are signed by the build workflow with cosign. Verify before
-pulling into any trusted environment:
+```
+git tag v0.1
+git push origin v0.1
+```
+
+After a draft release is created, make your final changes from the release page and publish it.
+
+## Verifying Docker Images
 
 ```bash
 cosign verify \
   --certificate-identity-regexp="https://github.com/nexus-xyz/nexus/.github/workflows/eng-chain-cosmos-build.yml@refs/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  nexusxyz/cosmos:<tag> | jq .
+  nexusxyz/cosmos:<tag> (replace with your image) | jq .
 ```
 
-## Releases
+### Install
 
-Tag a commit with a `v`-prefixed semver tag and push it. The release workflow
-picks up the tag, builds the binary and image, and opens a draft GitHub
-release.
+To install the latest version of your blockchain node's binary, execute the following command on your machine:
 
-```bash
-git tag cosmos/v0.1.0
-git push origin cosmos/v0.1.0
 ```
+curl https://get.ignite.com/username/nexus@latest! | sudo bash
+```
+
+`username/nexus` should match the `username` and `repo_name` of the Github repository to which the source code was pushed. Learn more about [the install process](https://github.com/allinbits/starport-installer).
+
+## Learn more
+
+- [Ignite CLI](https://ignite.com/cli)
+- [Tutorials](https://docs.ignite.com/guide)
+- [Ignite CLI docs](https://docs.ignite.com)
+- [Cosmos SDK docs](https://docs.cosmos.network)
+- [Developer Chat](https://discord.gg/ignite)

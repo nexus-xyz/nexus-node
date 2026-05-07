@@ -20,10 +20,3 @@ func (b *UnknownPayloadBehavior) HandleGetPayloadV4(
 		Message: engine.UnknownPayload.Error(),
 	}
 }
-
-func (b *UnknownPayloadBehavior) HandleGetPayloadV5(
-	state *EngineState,
-	payloadID engine.PayloadID,
-) (engine.ExecutionPayloadEnvelope, *JsonRPCError) {
-	return b.HandleGetPayloadV4(state, payloadID)
-}

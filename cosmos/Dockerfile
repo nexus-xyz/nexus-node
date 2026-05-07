@@ -1,4 +1,4 @@
-FROM golang:1.25.8-alpine3.22 AS build-env
+FROM golang:1.24.11-alpine3.22 AS build-env
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -11,13 +11,16 @@ WORKDIR /workspace
 
 # Build deps first
 COPY go.* ./
-RUN go mod tidy
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . ./
 
 # Build the binary manually (no ignite)
-RUN go build -o /usr/bin/nexusd ./cmd/nexusd
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -o /usr/bin/nexusd ./cmd/nexusd
 
 # Final runtime image
 FROM alpine:3.22
